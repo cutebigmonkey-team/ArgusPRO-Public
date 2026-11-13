@@ -23,17 +23,17 @@ class TinyFetchTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn('TINYFISH_API_KEY', os.environ)
 
     async def test_fallback_keeps_primary_and_archival_identity(self):
-        url = 'https://t.me/s/chernihivchm'
-        markup = '<div class="tgme_widget_message" data-post="chernihivchm/4064"><div class="tgme_widget_message_text">Post text</div></div>'
+        url = 'https://t.me/s/fixture110'
+        markup = '<div class="tgme_widget_message" data-post="fixture110/4064"><div class="tgme_widget_message_text">Post text</div></div>'
         with patch('tinyfish_fetch.fetch_pages', return_value={'results':[page(url, markup)]}) as fetch:
             primary = [{'tool':'telegram_public_history', 'status':'timeout', 'posts':0}]
             rows, status, attempts = await self.client.recover(TG, 1, [], 'timeout', primary)
             fetch.assert_called_once_with('fixture', [url], include_selectors=['.tgme_widget_message[data-post]'])
-            self.assertEqual((status, rows[0]['canonical_key']), ('ok','telegram:chernihivchm/4064'))
+            self.assertEqual((status, rows[0]['canonical_key']), ('ok','telegram:fixture110/4064'))
             self.assertEqual(attempts, primary + [{'tool':'tinyfish_fetch', 'status':'ok','posts':1}])
 
     async def test_profile_followup_maps_by_url_and_rejects_recommendations(self):
-        profile = page(THREADS['url'], links=[LINK, LINK.replace('@dsns_kyiv','@someone'), LINK, LINK+'/media'])
+        profile = page(THREADS['url'], links=[LINK, LINK.replace('@fixture1096','@someone'), LINK, LINK+'/media'])
         detail = page(LINK, CAPTION, description=CAPTION, published_date='2026-11-02T08:00:00Z')
         with patch('tinyfish_fetch.fetch_pages', side_effect=[{'results':[profile]}, {'results':[detail]}]) as fetch:
             rows, _, _ = await self.client.recover(THREADS, 5, [], 'no_public_posts', [])
@@ -61,7 +61,7 @@ class TinyFetchTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, 'no_verified_page'):
             checked_pages({'results':[page(LINK, final_url=THREADS['url'])]}, [LINK])
         self.assertIsNone(owned_key(THREADS, 'https://unrelated.example/@dsns_kyiv/post/1'))
-        self.assertIsNone(owned_key(THREADS, LINK.replace('@dsns_kyiv','@someone')))
+        self.assertIsNone(owned_key(THREADS, LINK.replace('@fixture1096','@someone')))
 
 
 if __name__ == '__main__':

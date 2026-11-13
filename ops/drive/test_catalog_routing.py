@@ -15,7 +15,7 @@ from test_publish import MemoryStore
 class CatalogRoutingTests(unittest.TestCase):
     def setUp(self):
         self.store = MemoryStore()
-        rows = json.loads((Path(__file__).resolve().parents[1]/'collect/sources.json').read_bytes())['sources']
+        rows = json.loads((Path(__file__).resolve().parent/'fixtures/synthetic-sources.json').read_bytes())['sources']
         self.sources = [next(s for s in rows if s['platform']==platform and s['origin']==origin)
                         for platform,origin in [('facebook','dsns'),('telegram','dsns'),('rss','dsns'),
                                                 ('rss','general'),('telegram','general')]]
@@ -48,7 +48,7 @@ class CatalogRoutingTests(unittest.TestCase):
     def test_first_package_from_reviewed_social_profiles_before_catalog_refresh(self):
         from source_origin import catalog_origins
         from import_sheet import preserve_verified_profiles
-        catalog=json.loads((Path(__file__).resolve().parents[1]/'collect/sources.json').read_bytes())
+        catalog=json.loads((Path(__file__).resolve().parent/'fixtures/synthetic-sources.json').read_bytes())
         profiles=[s for s in catalog['sources'] if any(r.get('kind')=='verified_public_profile'
                                                        for r in s.get('references',[]))]
         old={'sources':[s for s in catalog['sources'] if s not in profiles]}
@@ -71,7 +71,7 @@ class CatalogRoutingTests(unittest.TestCase):
     def test_operator_bookmarks_register_once_and_survive_workbook_reimport(self):
         from import_sheet import is_operator_source, preserve_verified_profiles
         from source_origin import catalog_origins
-        shipped=json.loads((Path(__file__).resolve().parents[1]/'collect/sources.json').read_bytes())
+        shipped=json.loads((Path(__file__).resolve().parent/'fixtures/synthetic-sources.json').read_bytes())
         requested=[s for s in shipped['sources'] if is_operator_source(s)]
         original={'sources':[s for s in shipped['sources'] if not is_operator_source(s)]}
         self.assertTrue(requested)
@@ -86,7 +86,7 @@ class CatalogRoutingTests(unittest.TestCase):
     def test_directory_profiles_register_without_claiming_individual_verification(self):
         from import_sheet import is_verified_profile, preserve_verified_profiles
         from source_origin import catalog_origins
-        shipped=json.loads((Path(__file__).resolve().parents[1]/'collect/sources.json').read_bytes())
+        shipped=json.loads((Path(__file__).resolve().parent/'fixtures/synthetic-sources.json').read_bytes())
         profiles=[s for s in shipped['sources'] if any(r.get('kind')=='wikidata_instagram'
                                                        for r in s['references'])]
         self.assertTrue(profiles)

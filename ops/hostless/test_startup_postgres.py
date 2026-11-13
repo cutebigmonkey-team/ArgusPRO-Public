@@ -39,6 +39,7 @@ class StartupPostgresTests(unittest.TestCase):
         self.db=self.owner.db.connection
         self.queue=ScheduleStore(self.db)
         self.source={'id':'preserve','platform':'rss','url':'https://fixture.invalid/feed'}
+        self.store.json('sources.json', {'sources':[self.source]})
         self.queue.sync({'sources':[self.source]}, {}, {'rss'})
         worker.Pending(self.owner,self.queue);Comments(self.db).close()
         self.db.execute("INSERT INTO runtime_pending VALUES(1,'preserve',%s,%s)",(b'pending-bytes','{"sources":[]}'))
@@ -111,7 +112,7 @@ class StartupPostgresTests(unittest.TestCase):
         events=[];stack=ExitStack()
         with stack:
             stack.enter_context(patch.dict(os.environ,{
-                'ARGUS_COLLECTOR_RUNTIME':'hostless','ARGUS_RUNTIME_MODE':'collect',
+                'ARGUS_COLLECTOR_RUNTIME':'hostless','ARGUS_RUNTIME_MODE':'collect','ARGUS_MIN_PRIVATE_SOURCES':'1',
                 'ARGUS_ARCHIVE_WRITER_OWNER':'hostless','DATABASE_URL':self.dsn,
                 'ARGUS_DRIVE_OAUTH':'fixture','ARGUS_DRIVE_FOLDER_ID':'fixture',
                 'ARGUS_JSONBIN_KEY':'fixture','ARGUS_JSONBIN_BIN_ID':'fixture'},clear=True))
@@ -124,8 +125,8 @@ class StartupPostgresTests(unittest.TestCase):
             else:
                 feed=SimpleNamespace(index=SimpleNamespace(rows=lambda:iter([])),verified_state={'sources':{}},close=Mock(),restore_cursors=Mock(),verify_head=Mock(),cursor=SimpleNamespace(verify=Mock()))
                 stack.enter_context(patch.object(runtime,'IndexedFeedJournal',return_value=feed))
-                stack.enter_context(patch.object(worker,'with_submissions',return_value={'sources':[]}))
-                stack.enter_context(patch.object(worker,'merge_catalog',return_value={'sources':[]}))
+                stack.enter_context(patch.object(worker,'with_submissions',side_effect=lambda store,catalog:catalog))
+                stack.enter_context(patch.object(worker,'merge_catalog',return_value={'sources':[self.source]}))
                 stack.enter_context(patch.object(runtime,'Loop',side_effect=RuntimeError('fixture')))
             recover=stack.enter_context(patch.object(worker,'recover_drive'))
             with self.assertRaises(StartupFailure) as caught:runtime.run(worker)
