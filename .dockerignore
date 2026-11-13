@@ -63,3 +63,11 @@ security-private/
 # No private runtime mounts or evidence can enter the build context.
 private-runtime/
 *.private.json
+
+# ARGUS private runtime assets
+**/__pycache__/
+**/*.pyc
+**/.env
+**/.env.*
+**/private-runtime/
+**/security-reports/
