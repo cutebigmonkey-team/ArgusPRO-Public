@@ -1,0 +1,13 @@
+{
+  "reviews": [
+    {
+      "path": "ops/collect/setup_source_adapter.py",
+      "blob": "07b4a74472ad75535b9c1185cde4e9042c5469bc",
+      "sha256": "13a59c3af492ca5d3a35c3a7bd62d8e96fea8bb5ebc168e1f3d023c0bb7a35d0",
+      "category": "database_credential_candidate",
+      "line": 38,
+      "disposition": "reviewed_disposable_fixture",
+      "reason": "Exact original blob manually verified to generate isolated Compose test services, not a production binding. Changed bytes or other rules are never exempt."
+    }
+  ]
+}

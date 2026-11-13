@@ -61,3 +61,52 @@ class WorkflowPolicyTests(unittest.TestCase):
                     self.assertRegex(step['uses'],r'@[0-9a-f]{40}$')
         self.assertNotIn('hostless deploy',text)
         self.assertNotIn('push: true',text)
+
+
+class ReviewBoundaryTests(unittest.TestCase):
+    def test_real_tokens_and_loopback_credentials_are_not_ignored_by_words(self):
+        value='ghp_'+'example'+'A9b8C7d6'*5
+        self.assertTrue(any(f['category']=='github_token_candidate' for f in inspect(value.encode())))
+        dsn=('postgres'+'://user:'+'A9b8C7d6'*4+'@localhost/private').encode()
+        self.assertTrue(any(f['category']=='database_credential_candidate' for f in inspect(dsn)))
+
+    def test_review_applies_only_to_exact_content_path_rule_line_and_blob(self):
+        import hashlib
+        from publication_audit import annotate_reviews
+        data=b'reviewed synthetic fixture';finding={'category':'database_credential_candidate','line':3}
+        review={'path':'fixture.py','sha256':hashlib.sha256(data).hexdigest(),'blob':'a'*40,**finding,'disposition':'reviewed_disposable_fixture'}
+        def disposition(body=data,path='fixture.py',row=finding,oid='a'*40):
+            return annotate_reviews([row],path,body,[review],oid)[0].get('disposition')
+        self.assertEqual(disposition(),'reviewed_disposable_fixture')
+        self.assertIsNone(disposition(body=data+b'changed credential'))
+        self.assertIsNone(disposition(path='another.py'))
+        self.assertIsNone(disposition(row={**finding,'line':4}))
+        self.assertIsNone(disposition(row={**finding,'category':'private_key_material'}))
+        self.assertIsNone(disposition(oid='b'*40))
+
+    def test_disposable_compose_uses_fresh_private_credentials(self):
+        from setup_source_adapter import fixture_services,write_fixture_compose
+        from urllib.parse import urlsplit
+        first=fixture_services();second=fixture_services()
+        password=first['db']['environment']['POSTGRES_PASSWORD']
+        self.assertTrue(len(password)>=24,'fixture credential too short')
+        self.assertTrue(password!=second['db']['environment']['POSTGRES_PASSWORD'],'fixture credential reused')
+        parsed=urlsplit(first['api']['environment']['DATABASE_URL'])
+        self.assertTrue(parsed.password==password,'fixture credential inconsistent')
+        self.assertTrue(parsed.hostname=='db','fixture service not isolated')
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'compose.json';write_fixture_compose(path)
+            self.assertEqual(path.stat().st_mode&0o777,0o600)
+            with self.assertRaises(FileExistsError):write_fixture_compose(path)
+
+
+class IndependentScanGateTests(unittest.TestCase):
+    def test_missing_established_scanner_is_blocked_not_a_clean_result(self):
+        from independent_scan import run
+        with tempfile.TemporaryDirectory() as directory,patch('independent_scan.shutil.which',return_value=None),patch('independent_scan.subprocess.run') as process:
+            result=run(Path(directory))
+        self.assertEqual(result['status'],'BLOCKED_BY_ENVIRONMENT')
+        self.assertFalse(result['executed'])
+        self.assertEqual(set(result['scopes']),{'all_tracked_files','all_git_history','docker_context_superset','workflow_files','committed_fixtures'})
+        self.assertTrue(all(value=='NOT_EXECUTED' for value in result['scopes'].values()))
+        process.assert_not_called()

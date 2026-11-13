@@ -67,3 +67,8 @@ private-runtime/
 
 /public-readiness-report*.json
 /snapshot-private*/
+
+# Python generated cache
+__pycache__/
+*.pyc
+*.pyo

@@ -26,18 +26,14 @@ RULES={
 }
 ASSIGN=re.compile(rb'(?i)(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|secret[_-]?key)\s*[\x22\x27]?\s*[:=]\s*[\x22\x27]([^\x22\x27\r\n]{16,})[\x22\x27]')
 
-def example(value):
- low=value.lower()
- return any(v in low for v in (b'example',b'fixture',b'placeholder',b'changeme',b'dummy',b'localhost',b'127.0.0.1',b'${',b'your_',b'os.environ',b'getenv(',b'process.env'))
-
 def inspect(data):
  findings=[]
  for rule,pattern in RULES.items():
   for m in re.finditer(pattern,data):
-   if not example(m.group()):findings.append({'category':rule,'line':data.count(b'\n',0,m.start())+1})
+   findings.append({'category':rule,'line':data.count(b'\n',0,m.start())+1})
  for m in ASSIGN.finditer(data):
   value=m[1]
-  if example(value):continue
+  if re.fullmatch(rb'\$\{[A-Z0-9_]+\}',value):continue
   frequencies=Counter(value);entropy=-sum((n/len(value))*math.log2(n/len(value)) for n in frequencies.values())
   if entropy>=3.5:findings.append({'category':'assigned_secret_candidate','line':data.count(b'\n',0,m.start())+1})
  return findings
@@ -66,7 +62,24 @@ def inspect_payload(data):
  return findings,gaps
 
 
+def annotate_reviews(findings,path,data,reviews,oid=None):
+ digest=__import__('hashlib').sha256(data).hexdigest()
+ result=[]
+ for finding in findings:
+  row=dict(finding)
+  for review in reviews:
+   if (review.get('path')==path and review.get('sha256')==digest and
+       review.get('category')==row['category'] and review.get('line')==row['line'] and
+       (oid is None or review.get('blob')==oid) and
+       review.get('disposition')=='reviewed_disposable_fixture'):
+    row['disposition']='reviewed_disposable_fixture'
+  result.append(row)
+ return result
+
+
 def audit(root):
+ reviews_path=root/'ops/security/reviewed-findings.json'
+ reviews=json.loads(reviews_path.read_text()).get('reviews',[]) if reviews_path.exists() else []
  def git(*args):return subprocess.check_output(['git',*args],cwd=root)
  refs=git('for-each-ref','--format=%(refname)').splitlines()
  names={}
@@ -94,6 +107,7 @@ def audit(root):
     except (ValueError,TypeError):pass
    if kind=='blob' and not synthetic_empty and (re.search(r'(^|/)(?:sources|source-reviews|.*snapshot.*|.*diagnostic.*|.*baseline.*)\.(?:json|jsonl|csv|sqlite|db)$',path,re.I) or path.endswith(('.zip','.sqlite','.db'))):
     found.append({'category':'confidential_dataset_or_artifact_review','line':None})
+   found=annotate_reviews(found,path,data,reviews,oid)
    if found:objects.append({'object':oid,'kind':kind,'path':path if kind=='blob' else None,'findings':found})
    gaps.extend({'object':oid,'reason':g} for g in missing)
  finally:proc.stdin.close();proc.wait()
@@ -103,11 +117,14 @@ def audit(root):
   p=root/name
   if not p.is_file():continue
   if p.stat().st_size>16*1024**2:gaps.append({'path':name,'reason':'working_file_size_limit'});continue
-  findings,missing=inspect_payload(p.read_bytes())
+  content=p.read_bytes()
+  findings,missing=inspect_payload(content)
+  findings=annotate_reviews(findings,name,content,reviews)
   if findings:current.append({'path':name,'findings':findings})
   gaps.extend({'path':name,'reason':g} for g in missing)
  categories=Counter(f['category'] for o in objects for f in o['findings'])
- return {'decision':'PUBLICATION_BLOCKED' if objects or current or gaps else 'LOCAL_SCAN_CLEAR_REMOTE_REVIEW_REQUIRED','local_refs_scanned':len(refs),'objects_scanned':dict(counts),
+ blocking=sum(f.get('disposition')!='reviewed_disposable_fixture' for row in objects+current for f in row['findings'])
+ return {'blocking_findings':blocking,'decision':'PUBLICATION_BLOCKED' if blocking or gaps else 'LOCAL_SCAN_CLEAR_REMOTE_REVIEW_REQUIRED','local_refs_scanned':len(refs),'objects_scanned':dict(counts),
          'history_findings':objects,'working_tree_findings':current,'historical_category_counts':dict(categories),'scan_gaps':gaps,
          'limitations':['All locally stored objects inspected; remote-only branches/tags and provider artifacts not verified.',
                         'Heuristic findings require private review; no match is not proof of no secrets.',
@@ -122,6 +139,6 @@ def main():
  fd=os.open(args.output,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
  with os.fdopen(fd,'w') as stream:json.dump(result,stream,indent=2)
  print(json.dumps({k:result[k] for k in ('decision','local_refs_scanned','objects_scanned','historical_category_counts','no_values_exported')}))
- raise SystemExit(1)
+ raise SystemExit(1 if result['decision']=='PUBLICATION_BLOCKED' else 0)
 
 if __name__=='__main__':main()

@@ -6,6 +6,24 @@ from pathlib import Path
 MAX_BYTES=8*1024**2
 
 
+class PrivateCatalogError(ValueError):
+    """Only fixed safe codes cross the private-configuration boundary."""
+
+
+def safe_read(reader):
+    try:return reader()
+    except (json.JSONDecodeError,UnicodeError):
+        raise PrivateCatalogError('private_catalog_invalid_json') from None
+    except Exception as error:
+        status=getattr(error,'code',None) or getattr(getattr(error,'resp',None),'status',None)
+        if isinstance(error,PermissionError) or status in (401,403) or type(error).__name__ in {'RefreshError','DefaultCredentialsError','AccessTokenRefreshError'}:
+            code='private_catalog_access_denied'
+        elif status==429:code='private_catalog_rate_limited'
+        else:code='private_catalog_unavailable'
+        raise PrivateCatalogError(code) from None
+
+
+
 def load_private_catalog(store,with_submissions):
     configured=os.environ.get('ARGUS_PRIVATE_SOURCE_FILE')
     if configured:
@@ -16,12 +34,14 @@ def load_private_catalog(store,with_submissions):
             raise ValueError('invalid_private_source_file')
         with path.open('rb') as stream:raw=stream.read(MAX_BYTES+1)
         if len(raw)>MAX_BYTES:raise ValueError('private_catalog_too_large')
-        catalog=json.loads(raw)
+        catalog=safe_read(lambda:json.loads(raw))
     else:
-        catalog=store.read_json('sources.json')
+        catalog=safe_read(lambda:store.read_json('sources.json'))
     if not isinstance(catalog,dict) or not isinstance(catalog.get('sources'),list):
         raise ValueError('private_source_registry_missing')
-    catalog=with_submissions(store,catalog)
+    if not catalog['sources']:raise PrivateCatalogError('private_source_registry_empty')
+    catalog=safe_read(lambda:with_submissions(store,catalog))
+    if not isinstance(catalog,dict):raise PrivateCatalogError('invalid_private_source_registry')
     rows=catalog.get('sources')
     if not isinstance(rows,list) or not rows:raise ValueError('private_source_registry_empty')
     ids=set()
