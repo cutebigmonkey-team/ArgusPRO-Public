@@ -1,0 +1,7 @@
+{
+  "instagramprofiles": {"repository":"shcheglovnd/FreshRSS-xExtension-InstagramProfiles","commit":"18d99165909122247a619fdbf715665e78bcfa0b"},
+  "rss-bridge": {"repository":"RSS-Bridge/rss-bridge","commit":"4f73a69ecf9611390b78e0344a3237a3119f35fc"},
+  "gallery-dl": {"repository":"mikf/gallery-dl","commit":"175d21fd8f7e52963911c02916d0634461cddb24"},
+  "gallery-dl-web": {"repository":"lumduan/gallery-dl-web","commit":"295d47ef15a9cc47a7a6c0c430fd0f37f158e976"},
+  "unsocial": {"repository":"pynbbz/UnSocial","commit":"bbea5540c46211742e9943277534e327b5f57a1d","install":false,"status":"requires_authenticated_electron_session"}
+}

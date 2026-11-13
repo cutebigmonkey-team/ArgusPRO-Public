@@ -1,0 +1,62 @@
+{
+  "source_registry": {
+    "required": true,
+    "existing_location": "private Drive sources.json or out-of-tree runtime file",
+    "env": [
+      "ARGUS_PRIVATE_SOURCE_FILE",
+      "ARGUS_MIN_PRIVATE_SOURCES"
+    ],
+    "public_default": "empty fixture, never used for production"
+  },
+  "collector_registry": {
+    "required": true,
+    "existing_location": "private JSONBin",
+    "env": [
+      "ARGUS_JSONBIN_BIN_ID",
+      "ARGUS_JSONBIN_KEY"
+    ]
+  },
+  "archive": {
+    "required": true,
+    "existing_location": "unchanged private Drive archive/journals/cursors",
+    "env": [
+      "ARGUS_DRIVE_OAUTH",
+      "ARGUS_DRIVE_FOLDER_ID"
+    ]
+  },
+  "pending_and_leases": {
+    "required": true,
+    "existing_location": "unchanged PostgreSQL",
+    "env": [
+      "DATABASE_URL",
+      "ARGUS_DATABASE_SESSION_URL"
+    ]
+  },
+  "optional_assets": {
+    "required_for_configured_features": true,
+    "env": [
+      "ARGUS_PRIVATE_ASSETS_DIR"
+    ],
+    "files": [
+      "source-reviews.json",
+      "dsns-official-sources.json",
+      "platform-folders.json",
+      "discovery-config.json",
+      "max-channels.json",
+      "ok-aliases.json",
+      "enhanced-config.json"
+    ]
+  },
+  "ai": {
+    "required_if_enabled": true,
+    "env": [
+      "TYPESAFE_API_KEY",
+      "ARGUS_TYPESAFE_CONFIG",
+      "ARGUS_TYPESAFE_COHORT"
+    ]
+  },
+  "television": {
+    "required_if_enabled": true,
+    "status": "approved runtime catalog binding still required; public default empty"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "schema": "argus-enhanced-collection-v1",
+  "default_engine": "crawlee",
+  "source_engines": {},
+  "max_pages": 4,
+  "rsshub_base": "https://rsshub.app"
+}

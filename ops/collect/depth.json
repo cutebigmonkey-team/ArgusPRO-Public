@@ -1,0 +1,11 @@
+{
+  "live": {"target_max_pages_per_source":30,"target_max_posts_per_source":1000,"source_seconds":45,"news_signal_minutes":60},
+  "backfill": {"target_max_pages_per_source":200,"target_max_posts_per_source":10000,"source_seconds":85},
+  "platforms": {
+    "telegram": {"live_pages":12,"backfill_pages":30},
+    "rss": {"live_pages":8,"backfill_pages":24},
+    "mailru": {"live_pages":8,"backfill_pages":24},
+    "youtube": {"live_details":12,"backfill_details":32},
+    "browser": {"live_pages":12,"backfill_pages":30,"idle_observations":3}
+  }
+}

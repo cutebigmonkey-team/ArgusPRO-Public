@@ -1,0 +1,9 @@
+{
+  "max-sdk": {"repository":"max-messenger/max-bot-api-client-go","commit":"8632e24c53b5ff722406d16a2230eb4e712ef363"},
+  "tg-radar": {"repository": "bigidulka/tg-radar", "commit": "a927dd3c3452e738cb59ff743032ec248a8f7813"},
+  "threads-agent": {"repository": "Egor01KKK/threads-content-research-agent", "commit": "981cccd2eb53d44f46cc5675b2388c8c7a6ad758"},
+  "threads-crawler": {"repository": "zrkluke/threads-crawler", "commit": "12ffa68b2db84ffbcf8dabb0290ef33abc13de02"},
+  "telegramchannels": {"repository": "shcheglovnd/FreshRSS-xExtension-TelegramChannels", "commit": "6ebe781ecb2dcf758321e94d4ddaae325bd6c26b"},
+  "instaloader": {"repository": "instaloader/instaloader", "commit": "3338260f5d956e8b0da862c8b535f667ae791841"},
+  "facebook-scraper": {"repository": "kevinzg/facebook-scraper", "commit": "567711fbab3e014504a1d4f33f882c2b29d71584"}
+}

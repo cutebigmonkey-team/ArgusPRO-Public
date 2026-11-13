@@ -1,0 +1,65 @@
+# Keep the build context small and make sure nothing pre-built on the host
+# ever leaks into the image — Docker must compile everything itself.
+
+# Vendored host toolchain (~1GB+, irrelevant — the frontend-builder stage
+# uses the official emscripten/emsdk image instead).
+tools/
+
+# Host-side CMake build directories (Windows and Linux presets alike).
+build/
+build-*/
+backend/build/
+backend/build2/
+backend/build2-linux/
+frontend/build/
+frontend/build-linux/
+
+# Legacy/incomplete JavaScript browser collector scaffolding is retained in
+# the working tree for provenance only. The production runtime is C++20/CDP.
+collectors/browser/
+
+# Browser session state must never be sent to the Docker daemon.
+browser-profiles/
+collector-cookies/
+cookies/
+*.cookies.json
+
+# Emscripten output already on disk from local host builds — the image must
+# regenerate these itself in the frontend-builder stage, never copy them in.
+frontend/web/app.js
+frontend/web/app.wasm
+
+# VCS / editor / OS cruft.
+.git/
+.gitignore
+.vs/
+*.user
+.DS_Store
+
+# Not needed inside the build context.
+docs/
+README.md
+uploads/
+
+# Production credentials and certificates must never enter an image layer.
+.env*
+*.env
+!.env.production.example
+secrets/
+*.pem
+*.crt
+*.cer
+*.key
+*.token
+*.swp
+
+# Private export/configuration material is not a Docker build input.
+publication-private/
+security-private/
+*service-account*.json
+*credentials*.json
+*.p12
+*.pfx
+# No private runtime mounts or evidence can enter the build context.
+private-runtime/
+*.private.json

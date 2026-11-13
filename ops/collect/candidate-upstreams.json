@@ -1,0 +1,8 @@
+{
+  "facebook-cli": {"repository": "tamnd/facebook-cli", "commit": "f50ef61d4d8444d7902f5c15791b097f49e72e5e"},
+  "x2md": {"repository": "yshmarov/x2md", "commit": "6fd2ed7d0e61af72cfd677ed67bfe23e6c58fe91"},
+  "tiktok-cli": {"repository": "tamnd/tiktok-cli", "commit": "035b3d0ce4100c0210aad319fc96b7ad19d6b429"},
+  "threads-scraper": {"repository": "omkarcloud/threads-scraper", "commit": "d970d8b1b38eb68d7aa6a2f4e13b5b32233b1f32"},
+  "saver_backend": {"repository": "KatantDev/saver_backend", "commit": "6827079c3275cae3ddc131b812cd939a62ca0088"},
+  "tiktok-video-analyzer": {"repository": "Sisazal1/tiktok-video-analyzer", "commit": "484ae10d508e902354bd2acd971b0c0839480bcb"}
+}

@@ -1,0 +1,50 @@
+{
+  "sipher": {
+    "repository": "stepbyjason-lab/sipher",
+    "commit": "2c3470f973d47842a13b70c552872a6ceabd7a9b",
+    "platform": "facebook",
+    "target": "https://www.facebook.com/DSNSKyiv"
+  },
+  "facebook-page-info": {
+    "repository": "wael-sudo2/facebook-page-info-scraper",
+    "commit": "444024cf5cc7b9a031ff7e596cbf8db64edc9e5a",
+    "platform": "facebook",
+    "target": "https://www.facebook.com/DSNSKyiv"
+  },
+  "ckelepel": {
+    "repository": "wongedyan/ckelepel-threads",
+    "commit": "d4a18e5dfe65ab69ce4bcad167e54446ff9c9912",
+    "platform": "threads",
+    "target": "https://www.threads.com/@fixture1096"
+  },
+  "threads-actor": {
+    "repository": "the-ai-entrepreneur-ai-hub/threads-scraper",
+    "commit": "ae075f6086172a67c17ebd5bc80f3c2f2846896b",
+    "platform": "threads",
+    "target": "https://www.threads.com/@fixture1096"
+  },
+  "vdite": {
+    "repository": "vdite/threads-scraper",
+    "commit": "8e84bc21124c33107e573e9143da031ca9546fb7",
+    "platform": "threads",
+    "target": "https://www.threads.com/@fixture1096/post/DemiWQXDCYZ"
+  },
+  "marketpulse": {
+    "repository": "MattTheGreat-root/MarketPulse",
+    "commit": "f7478ba2e3f5c295a578d03d4cfad509213c9564",
+    "platform": "telegram",
+    "target": "https://t.me/fixture110"
+  },
+  "superbrain": {
+    "repository": "sidinsearch/superbrain",
+    "commit": "a621c6b6c178af44c4575177a7fc2ee11bd1034c",
+    "platform": "instagram",
+    "target": "https://www.instagram.com/p/DMP-ur1NqC3/"
+  },
+  "socialcrawl": {
+    "repository": "socialcrawl/socialcrawl-apify",
+    "commit": "9b29e4941cb5bcbe8e2c06ec8935b56954279247",
+    "platform": "threads",
+    "target": "https://www.threads.com/@fixture1096"
+  }
+}

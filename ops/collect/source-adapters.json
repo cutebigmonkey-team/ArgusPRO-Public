@@ -1,0 +1,8 @@
+{
+  "pravaha": {"repository":"DevamShah/pravaha","commit":"0b2ae1908cd8ff9d69d9249ba105f67014277c8f"},
+  "threads-cli": {"repository":"tamnd/threads-cli","commit":"cbf00eb0f68e49f95cc315c9379b4287697ea81d"},
+  "logiover-threads": {"repository":"logiover/threads-scraper","commit":"6cabca812ce3eec74da3a8706f88245607db9b17"},
+  "social-fetch": {"repository":"coreyhaines31/makerskills","commit":"ea7dd78515839ff11fc24e79ba0c53db2d5fff6c"},
+  "single-reels": {"repository":"RiseHaza/instagram-single-reels-scraper","commit":"f222886aedbf64925cbdb3110642e6eaa3f3fe62"},
+  "scrapedog-cobalt": {"repository":"TrialAndErrorAI/scrapedog-cobalt","commit":"50db4d342ab58c27b3f093b2f9681d3778df5ccb"}
+}

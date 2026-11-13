@@ -1,0 +1,9 @@
+{
+  "skraper": {"repository": "sokomishalov/skraper", "commit": "3b59ba631f1bfe1dec73f311397bcfa444c12379"},
+  "fbgql": {"repository": "bsho5/fbgql", "commit": "28e03ae84012be44d37a67014fcfcfcc420c9ee9"},
+  "TikTok-Api": {"repository": "davidteather/TikTok-Api", "commit": "99630590a2e24997f69822b0541f396424f44d40"},
+  "snscrape": {"repository": "JustAnotherArchivist/snscrape", "commit": "614d4c2029a62d348ca56598f87c425966aaec66"},
+  "socialfetch": {"repository": "EdgeAIG/socialfetch", "commit": "e438a6856d60a5e8c8da3e33cccde2a256360d35"},
+  "granary": {"repository": "snarfed/granary", "commit": "21ba484cf73a9c6e0315a2333c7f3f1f1fb1b252"},
+  "vkrss": {"repository": "woxcab/vkrss", "commit": "8021266bbe72d59114353f0daec8fe3aced52eb5"}
+}

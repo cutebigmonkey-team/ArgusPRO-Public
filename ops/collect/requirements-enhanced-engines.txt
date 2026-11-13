@@ -1,0 +1,4 @@
+# Optional engines: imported only by opt-in bounded extraction paths.
+crawlee==1.11.0
+crawl4ai==0.9.5
+Scrapy==2.19.0

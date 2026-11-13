@@ -1,0 +1,4 @@
+{
+  "searxng":{"repository":"searxng/searxng","commit":"1cd13d98d65a58f1126fa5bb5c77e42c0ea625f3"},
+  "changedetection":{"repository":"dgtlmoon/changedetection.io","commit":"73e4b22de901c368b7398d4418c99cd72a9b729b"}
+}
