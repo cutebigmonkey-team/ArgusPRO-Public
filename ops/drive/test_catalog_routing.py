@@ -15,6 +15,11 @@ from test_publish import MemoryStore
 class CatalogRoutingTests(unittest.TestCase):
     def setUp(self):
         self.store = MemoryStore()
+        fixture_path = Path(__file__).resolve().parent / 'fixtures/synthetic-sources.json'
+        synthetic = json.loads(fixture_path.read_bytes())
+        shipped_patch = patch('source_origin.load_shipped_sources', return_value=synthetic)
+        shipped_patch.start()
+        self.addCleanup(shipped_patch.stop)
         rows = json.loads((Path(__file__).resolve().parent/'fixtures/synthetic-sources.json').read_bytes())['sources']
         self.sources = [next(s for s in rows if s['platform']==platform and s['origin']==origin)
                         for platform,origin in [('facebook','dsns'),('telegram','dsns'),('rss','dsns'),

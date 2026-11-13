@@ -3,7 +3,7 @@
     {
       "id": "fixture-1",
       "platform": "facebook",
-      "url": "https://example.org/facebook/1",
+      "url": "https://www.facebook.com/argusfixture1",
       "name": "Synthetic facebook 1",
       "origin": "dsns",
       "references": []
@@ -11,7 +11,7 @@
     {
       "id": "fixture-2",
       "platform": "telegram",
-      "url": "https://example.org/telegram/2",
+      "url": "https://t.me/argusfixture2",
       "name": "Synthetic telegram 2",
       "origin": "dsns",
       "references": []
@@ -19,7 +19,7 @@
     {
       "id": "fixture-3",
       "platform": "rss",
-      "url": "https://example.org/rss/3",
+      "url": "https://news.example/argusfixture3/feed",
       "name": "Synthetic rss 3",
       "origin": "dsns",
       "references": []
@@ -27,7 +27,7 @@
     {
       "id": "fixture-4",
       "platform": "rss",
-      "url": "https://example.org/rss/4",
+      "url": "https://news.example/argusfixture4/feed",
       "name": "Synthetic rss 4",
       "origin": "general",
       "references": []
@@ -35,7 +35,7 @@
     {
       "id": "fixture-5",
       "platform": "telegram",
-      "url": "https://example.org/telegram/5",
+      "url": "https://t.me/argusfixture5",
       "name": "Synthetic telegram 5",
       "origin": "general",
       "references": []
@@ -43,13 +43,13 @@
     {
       "id": "fixture-6",
       "platform": "facebook",
-      "url": "https://example.org/facebook/6",
+      "url": "https://www.facebook.com/argusfixture6",
       "name": "Synthetic facebook 6",
       "origin": "general",
       "references": [
         {
           "kind": "verified_public_profile",
-          "url": "https://example.org/facebook/6",
+          "url": "https://www.facebook.com/argusfixture6",
           "owner_kind": "media"
         }
       ]
@@ -57,13 +57,13 @@
     {
       "id": "fixture-7",
       "platform": "instagram",
-      "url": "https://example.org/instagram/7",
+      "url": "https://www.instagram.com/argusfixture7",
       "name": "Synthetic instagram 7",
       "origin": "general",
       "references": [
         {
           "kind": "verified_public_profile",
-          "url": "https://example.org/instagram/7",
+          "url": "https://www.instagram.com/argusfixture7",
           "owner_kind": "media"
         }
       ]
@@ -71,13 +71,13 @@
     {
       "id": "fixture-8",
       "platform": "x",
-      "url": "https://example.org/x/8",
+      "url": "https://x.com/argusfixture8",
       "name": "Synthetic x 8",
       "origin": "general",
       "references": [
         {
           "kind": "verified_public_profile",
-          "url": "https://example.org/x/8",
+          "url": "https://x.com/argusfixture8",
           "owner_kind": "media"
         }
       ]
@@ -85,13 +85,13 @@
     {
       "id": "fixture-9",
       "platform": "youtube",
-      "url": "https://example.org/youtube/9",
+      "url": "https://www.youtube.com/channel/UC0000000000000000000009",
       "name": "Synthetic youtube 9",
       "origin": "general",
       "references": [
         {
           "kind": "verified_public_profile",
-          "url": "https://example.org/youtube/9",
+          "url": "https://www.youtube.com/channel/UC0000000000000000000009",
           "owner_kind": "media"
         }
       ]
@@ -99,13 +99,13 @@
     {
       "id": "fixture-10",
       "platform": "threads",
-      "url": "https://example.org/threads/10",
+      "url": "https://www.threads.com/@argusfixture10",
       "name": "Synthetic threads 10",
       "origin": "general",
       "references": [
         {
           "kind": "verified_public_profile",
-          "url": "https://example.org/threads/10",
+          "url": "https://www.threads.com/@argusfixture10",
           "owner_kind": "media"
         }
       ]
@@ -113,13 +113,13 @@
     {
       "id": "fixture-11",
       "platform": "tiktok",
-      "url": "https://example.org/tiktok/11",
+      "url": "https://www.tiktok.com/@argusfixture11",
       "name": "Synthetic tiktok 11",
       "origin": "general",
       "references": [
         {
           "kind": "verified_public_profile",
-          "url": "https://example.org/tiktok/11",
+          "url": "https://www.tiktok.com/@argusfixture11",
           "owner_kind": "media"
         }
       ]
@@ -127,13 +127,13 @@
     {
       "id": "fixture-12",
       "platform": "facebook",
-      "url": "https://example.org/facebook/12",
+      "url": "https://www.facebook.com/argusfixture12",
       "name": "Synthetic facebook 12",
       "origin": "general",
       "references": [
         {
           "kind": "verified_public_profile",
-          "url": "https://example.org/facebook/12",
+          "url": "https://www.facebook.com/argusfixture12",
           "owner_kind": "politician"
         }
       ]
@@ -141,13 +141,13 @@
     {
       "id": "fixture-13",
       "platform": "instagram",
-      "url": "https://example.org/instagram/13",
+      "url": "https://www.instagram.com/argusfixture13",
       "name": "Synthetic instagram 13",
       "origin": "general",
       "references": [
         {
           "kind": "verified_public_profile",
-          "url": "https://example.org/instagram/13",
+          "url": "https://www.instagram.com/argusfixture13",
           "owner_kind": "politician"
         }
       ]
@@ -155,26 +155,26 @@
     {
       "id": "fixture-14",
       "platform": "rss",
-      "url": "https://example.org/rss/14",
+      "url": "https://news.example/argusfixture14/feed",
       "name": "Synthetic rss 14",
       "origin": "general",
       "references": [
         {
           "kind": "operator_supplied_source",
-          "url": "https://example.org/rss/14"
+          "url": "https://news.example/argusfixture14/feed"
         }
       ]
     },
     {
       "id": "fixture-15",
       "platform": "instagram",
-      "url": "https://example.org/instagram/15",
+      "url": "https://www.instagram.com/argusfixture15",
       "name": "Synthetic instagram 15",
       "origin": "general",
       "references": [
         {
           "kind": "wikidata_instagram",
-          "url": "https://example.org/instagram/15"
+          "url": "https://www.instagram.com/argusfixture15"
         }
       ]
     }
