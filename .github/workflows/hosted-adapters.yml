@@ -107,6 +107,15 @@ jobs:
           print("FBGQL_AND_GRANARY_IMPORT_OK")
           PYCODE
 
+      - name: Build pinned Skraper JVM adapter
+        run: |
+          mvn -B -ntp -f .social-tools/skraper/pom.xml \
+            -pl cli -am -DskipTests package
+          test -s .social-tools/skraper/cli/target/cli.jar
+          jar tf .social-tools/skraper/cli/target/cli.jar \
+            | grep -Fx 'ru/sokomishalov/skraper/cli/ArgusOffline.class'
+          echo "SKRAPER_JAR_VERIFIED"
+
       - name: Diagnose remaining hosted runtimes
         run: |
           python - <<'PYCODE'
