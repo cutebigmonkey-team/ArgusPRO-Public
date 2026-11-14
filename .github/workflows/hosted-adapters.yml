@@ -31,6 +31,7 @@ jobs:
           sudo apt-get install -y php-cli git openjdk-17-jdk-headless
           python -m pip install -r ops/collect/requirements.txt
           python -m pip install requests==2.32.5
+          python -m pip install loguru==0.7.3
 
       - name: Checkout pinned social tools
         env:
@@ -45,6 +46,12 @@ jobs:
           python - <<'PYCODE'
           import importlib.util
           print("tg_radar:", importlib.util.find_spec("tg_radar"))
+          try:
+              from tg_radar.parser import parse_tme_page
+              print("TG_RADAR_IMPORT_OK")
+          except Exception:
+              import traceback
+              traceback.print_exc()
           PYCODE
 
       - name: Checkout pinned embed tools
@@ -56,6 +63,11 @@ jobs:
         env:
           PYTHONPATH: ops/collect
         run: python ops/collect/setup_remaining.py
+
+      - name: Checkout pinned Facebook and X tools
+        env:
+          PYTHONPATH: ops/collect
+        run: python ops/collect/setup_candidates.py facebook-x
 
       - name: Checkout pinned discovery tools
         env:
