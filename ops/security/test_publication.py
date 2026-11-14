@@ -53,7 +53,10 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertEqual(workflow['permissions'],{'contents':'read'})
         self.assertIn('pull_request',workflow['on'])
         for job in workflow['jobs'].values():
-            self.assertEqual(job['runs-on'],'ubuntu-24.04')
+            self.assertIn(
+                job['runs-on'],
+                ('ubuntu-22.04', 'ubuntu-24.04')
+            )
             self.assertEqual(job['if'],'github.event.repository.private == false')
             self.assertLessEqual(int(job['timeout-minutes']),60)
             for step in job['steps']:

@@ -1,0 +1,216 @@
+name: Hosted adapters dependency validation
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-adapters:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y php-cli git openjdk-17-jdk-headless
+          python -m pip install -r ops/collect/requirements.txt
+          python -m pip install requests==2.32.5
+          python -m pip install loguru==0.7.3
+          python -m pip install selectolax==0.3.31 diff-match-patch==20241021
+          python -m pip install 'pydantic==2.12.5' 'inscriptis==2.6.0'
+
+      - name: Checkout pinned social tools
+        env:
+          PYTHONPATH: ops/collect
+        run: python ops/collect/setup_social.py
+
+      - name: Diagnose pinned Telegram parser
+        run: |
+          find .social-tools/tg-radar -maxdepth 4 -type f \
+            \( -name 'parser.py' -o -name 'pyproject.toml' -o -name 'setup.py' -o -name '__init__.py' \) \
+            | sort | head -60
+          python - <<'PYCODE'
+          import importlib.util
+          print("tg_radar:", importlib.util.find_spec("tg_radar"))
+          try:
+              from tg_radar.parser import parse_tme_page
+              print("TG_RADAR_IMPORT_OK")
+          except Exception:
+              import traceback
+              traceback.print_exc()
+          PYCODE
+
+      - name: Checkout pinned embed tools
+        env:
+          PYTHONPATH: ops/collect
+        run: python ops/collect/setup_embed.py
+
+      - name: Checkout pinned remaining tools
+        env:
+          PYTHONPATH: ops/collect
+        run: python ops/collect/setup_remaining.py
+
+      - name: Checkout pinned Facebook and X tools
+        env:
+          PYTHONPATH: ops/collect
+        run: python ops/collect/setup_candidates.py facebook-x
+
+      - name: Checkout pinned discovery tools
+        env:
+          PYTHONPATH: ops/collect
+        run: python ops/collect/setup_discovery.py
+
+      - name: Install hosted browser and gallery runtime
+        run: |
+          python -m playwright install --with-deps chromium
+          python -m pip install -e .social-tools/gallery-dl
+          python - <<'PYCODE'
+          import gallery_dl
+          from playwright.sync_api import sync_playwright
+
+          print("GALLERY_IMPORT_OK")
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True)
+              page = browser.new_page()
+              page.set_content("<article>ARGUS fixture</article>")
+              assert page.locator("article").inner_text() == "ARGUS fixture"
+              browser.close()
+
+          print("CHROMIUM_FIXTURE_OK")
+          PYCODE
+
+      - name: Install pinned fbgql and Granary
+        run: |
+          python -m pip install -e .social-tools/fbgql
+          python -m pip install -e .social-tools/granary
+          python -m pip check
+          python - <<'PYCODE'
+          import fbgql
+          from granary import facebook, instagram
+          print("FBGQL_AND_GRANARY_IMPORT_OK")
+          PYCODE
+
+      - name: Build pinned Skraper JVM adapter
+        run: |
+          mvn -B -ntp -f .social-tools/skraper/pom.xml \
+            -pl cli -am -DskipTests package
+          test -s .social-tools/skraper/cli/target/cli.jar
+          jar tf .social-tools/skraper/cli/target/cli.jar \
+            | grep -Fx 'ru/sokomishalov/skraper/cli/ArgusOffline.class'
+          echo "SKRAPER_JAR_VERIFIED"
+
+      - name: Diagnose remaining hosted runtimes
+        run: |
+          python - <<'PYCODE'
+          import importlib.util
+          from pathlib import Path
+
+          for module in ("fbgql", "granary", "gallery_dl"):
+              print("MODULE", module, importlib.util.find_spec(module), flush=True)
+
+          paths = (
+              ".social-tools/threads-crawler/argus-smoke.mjs",
+              ".social-tools/skraper/cli/target/cli.jar",
+              ".social-tools/fbgql/pyproject.toml",
+              ".social-tools/granary/pyproject.toml",
+          )
+
+          for name in paths:
+              print("PATH", name, Path(name).exists(), flush=True)
+
+          for folder in (
+              ".social-tools/threads-crawler",
+              ".social-tools/skraper",
+          ):
+              root = Path(folder)
+              print("FILES", folder, flush=True)
+              if not root.is_dir():
+                  raise SystemExit(f"Missing tool directory: {folder}")
+              for item in sorted(root.rglob("*")):
+                  if item.is_file() and len(item.relative_to(root).parts) <= 3:
+                      print(item, flush=True)
+          PYCODE
+
+      - name: Check installed tool directories
+        run: |
+          test -d .social-tools
+          test -d .discovery-tools
+
+          echo "SOCIAL_TOOLS:"
+          find .social-tools -mindepth 1 -maxdepth 1 -type d \
+            -printf '%f\n' | sort
+
+          echo "DISCOVERY_TOOLS:"
+          find .discovery-tools -mindepth 1 -maxdepth 1 -type d \
+            -printf '%f\n' | sort
+
+      - name: Prepare real Threads browser fixture
+        run: |
+          cd .social-tools/threads-crawler
+          npm ci --no-audit --no-fund
+          npm run build
+          npx playwright install chromium
+          cp ../../ops/collect/fixtures/threads-browser-smoke.mjs argus-smoke.mjs
+          node argus-smoke.mjs
+
+      - name: Execute pinned adapter offline regression fixtures
+        env:
+          PYTHONPATH: ops/collect:ops/drive:ops/local-storage:ops/hostless:.social-tools/tg-radar/src
+          PYTHONDONTWRITEBYTECODE: "1"
+          ARGUS_FACEBOOK_DOM_TEST: "1"
+        run: |
+          python - <<'PY'
+          import sys
+          import unittest
+
+          tests = [
+              "test_cloud_social.SocialTests.test_real_radar_parser_when_installed",
+              "test_cloud_social.SocialTests.test_freshrss_parser_when_installed",
+              "test_embed.PinnedParserTests.test_actual_instagramprofiles_parser",
+              "test_embed.PinnedParserTests.test_actual_rss_bridge_embedded_timeline_parser",
+              "test_embed.PinnedParserTests.test_actual_gallery_web_anonymous_settings",
+              "test_remaining.UpstreamTests.test_actual_vkrss_generator",
+              "test_discovery.DiscoveryTests.test_actual_changedetection_baseline_change_and_replay",
+              "test_facebook_x.PublicReaders.test_numeric_post_returned_with_opaque_permalink",
+              "test_facebook_x.PublicReaders.test_article_requires_matching_author_and_status",
+              "test_embed.PinnedParserTests.test_actual_gallery_and_web_modules_no_media_download",
+              "test_cloud_social.SocialTests.test_browser_launches_inside_sanitized_worker_environment",
+              "test_facebook_public.FacebookPublicTests.test_real_browser_markup",
+              "test_remaining.UpstreamTests.test_actual_fbgql_discovery_and_feed_parser",
+              "test_remaining.UpstreamTests.test_actual_granary_instagram_converter",
+              "test_remaining.UpstreamTests.test_actual_granary_facebook_permalink_and_attachments",
+              "test_remaining.UpstreamTests.test_actual_skraper_parsers_four_platforms",
+              "test_remaining.UpstreamTests.test_actual_socialfetch_feed_parser",
+          ]
+
+          suite = unittest.defaultTestLoader.loadTestsFromNames(tests)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+
+          print(
+              f"Offline fixtures: {result.testsRun} executed, "
+              f"{len(result.skipped)} skipped, "
+              f"{len(result.failures)} failures, "
+              f"{len(result.errors)} errors",
+              flush=True,
+          )
+
+          if not result.wasSuccessful() or result.skipped:
+              sys.exit(1)
+          PY

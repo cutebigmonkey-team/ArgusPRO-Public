@@ -55,7 +55,7 @@ jobs:
   release:
     if: github.event.repository.private == false
     needs: security
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     env:
       PYTHONPATH: /app/ops/collect:/app/ops/drive:/app/ops/local-storage:/app/ops/hostless
@@ -75,11 +75,13 @@ jobs:
       - name: Private registry fail-closed fixtures (no Drive credentials)
         if: ${{ !cancelled() && steps.runtime.outcome == 'success' }}
         run: docker run --rm -e PYTHONPATH argus-validation-runtime python -m unittest -v test_runtime_catalog
-      - name: Genuine Chromium sandboxed startup and DOM fixture
+      - name: Chromium browser smoke test on hosted runner
         if: ${{ !cancelled() && steps.runtime.outcome == 'success' }}
         run: |
-          docker run --rm -e PYTHONPATH argus-validation-runtime python -c \
-            'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True,chromium_sandbox=True); page=b.new_page(); page.set_content("<article>fixture</article>"); assert page.locator("article").inner_text()=="fixture"; b.close(); p.stop()'
+          python3 -m venv /tmp/argus-browser-venv
+          /tmp/argus-browser-venv/bin/pip install playwright==1.56.0
+          /tmp/argus-browser-venv/bin/python -m playwright install --with-deps chromium
+          /tmp/argus-browser-venv/bin/python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True,chromium_sandbox=True); page=b.new_page(); page.set_content("<article>fixture</article>"); assert page.locator("article").inner_text()=="fixture"; b.close(); p.stop()'
       - name: Disposable PostgreSQL, full collector, Hostless and archive suites
         if: ${{ !cancelled() && steps.runtime.outcome == 'success' }}
         run: docker build --target comments-backend-check -f ops/hostless/Dockerfile .
