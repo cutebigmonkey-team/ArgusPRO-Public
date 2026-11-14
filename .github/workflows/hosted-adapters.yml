@@ -1,0 +1,62 @@
+name: Hosted adapters dependency validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-adapters:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y php-cli git openjdk-17-jdk-headless
+          python -m pip install -r ops/collect/requirements.txt
+
+      - name: Checkout pinned social tools
+        env:
+          PYTHONPATH: ops/collect
+        run: python ops/collect/setup_social.py
+
+      - name: Checkout pinned embed tools
+        env:
+          PYTHONPATH: ops/collect
+        run: python ops/collect/setup_embed.py
+
+      - name: Checkout pinned remaining tools
+        env:
+          PYTHONPATH: ops/collect
+        run: python ops/collect/setup_remaining.py
+
+      - name: Checkout pinned discovery tools
+        env:
+          PYTHONPATH: ops/collect
+        run: python ops/collect/setup_discovery.py
+
+      - name: Check installed tool directories
+        run: |
+          test -d .social-tools
+          test -d .discovery-tools
+
+          echo "SOCIAL_TOOLS:"
+          find .social-tools -mindepth 1 -maxdepth 1 -type d \
+            -printf '%f\n' | sort
+
+          echo "DISCOVERY_TOOLS:"
+          find .discovery-tools -mindepth 1 -maxdepth 1 -type d \
+            -printf '%f\n' | sort
