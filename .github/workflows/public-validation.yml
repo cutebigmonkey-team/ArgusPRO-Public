@@ -55,7 +55,7 @@ jobs:
   release:
     if: github.event.repository.private == false
     needs: security
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     env:
       PYTHONPATH: /app/ops/collect:/app/ops/drive:/app/ops/local-storage:/app/ops/hostless
