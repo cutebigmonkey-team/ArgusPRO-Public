@@ -63,3 +63,39 @@ jobs:
           echo "DISCOVERY_TOOLS:"
           find .discovery-tools -mindepth 1 -maxdepth 1 -type d \
             -printf '%f\n' | sort
+
+      - name: Execute pinned adapter offline regression fixtures
+        env:
+          PYTHONPATH: ops/collect:ops/drive:ops/local-storage:ops/hostless:.social-tools/tg-radar/src
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python - <<'PY'
+          import sys
+          import unittest
+
+          tests = [
+              "test_cloud_social.SocialTests.test_real_radar_parser_when_installed",
+              "test_cloud_social.SocialTests.test_freshrss_parser_when_installed",
+              "test_embed.PinnedParserTests.test_actual_instagramprofiles_parser",
+              "test_embed.PinnedParserTests.test_actual_rss_bridge_embedded_timeline_parser",
+              "test_embed.PinnedParserTests.test_actual_gallery_web_anonymous_settings",
+              "test_remaining.UpstreamTests.test_actual_vkrss_generator",
+              "test_discovery.DiscoveryTests.test_actual_changedetection_baseline_change_and_replay",
+              "test_facebook_x.PublicReaders.test_numeric_post_returned_with_opaque_permalink",
+              "test_facebook_x.PublicReaders.test_article_requires_matching_author_and_status",
+          ]
+
+          suite = unittest.defaultTestLoader.loadTestsFromNames(tests)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+
+          print(
+              f"Offline fixtures: {result.testsRun} executed, "
+              f"{len(result.skipped)} skipped, "
+              f"{len(result.failures)} failures, "
+              f"{len(result.errors)} errors",
+              flush=True,
+          )
+
+          if not result.wasSuccessful() or result.skipped:
+              sys.exit(1)
+          PY
