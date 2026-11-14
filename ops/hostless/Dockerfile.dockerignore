@@ -1,4 +1,7 @@
 **
+!.github/
+!.github/workflows/
+!.github/workflows/hosted-adapters.yml
 !ops/
 !ops/collect/
 !ops/collect/**
