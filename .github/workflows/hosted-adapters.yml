@@ -161,6 +161,15 @@ jobs:
           find .discovery-tools -mindepth 1 -maxdepth 1 -type d \
             -printf '%f\n' | sort
 
+      - name: Prepare real Threads browser fixture
+        run: |
+          cd .social-tools/threads-crawler
+          npm ci --no-audit --no-fund
+          npm run build
+          npx playwright install chromium
+          cp ../../ops/collect/fixtures/threads-browser-smoke.mjs argus-smoke.mjs
+          node argus-smoke.mjs
+
       - name: Execute pinned adapter offline regression fixtures
         env:
           PYTHONPATH: ops/collect:ops/drive:ops/local-storage:ops/hostless:.social-tools/tg-radar/src
