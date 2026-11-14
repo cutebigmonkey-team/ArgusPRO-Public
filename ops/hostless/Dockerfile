@@ -30,6 +30,7 @@ USER 10001:10001
 # A failed check prevents creation of the final worker image. PostgreSQL exists
 # only in this disposable build stage and never connects to the production DB.
 FROM worker-source AS comments-backend-check
+COPY .github/workflows/hosted-adapters.yml /app/.github/workflows/hosted-adapters.yml
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends postgresql \
     && rm -rf /var/lib/apt/lists/*
