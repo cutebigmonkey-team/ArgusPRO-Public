@@ -30,11 +30,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y php-cli git openjdk-17-jdk-headless
           python -m pip install -r ops/collect/requirements.txt
+          python -m pip install requests==2.32.5
 
       - name: Checkout pinned social tools
         env:
           PYTHONPATH: ops/collect
         run: python ops/collect/setup_social.py
+
+      - name: Diagnose pinned Telegram parser
+        run: |
+          find .social-tools/tg-radar -maxdepth 4 -type f \
+            \( -name 'parser.py' -o -name 'pyproject.toml' -o -name 'setup.py' -o -name '__init__.py' \) \
+            | sort | head -60
+          python - <<'PYCODE'
+          import importlib.util
+          print("tg_radar:", importlib.util.find_spec("tg_radar"))
+          PYCODE
 
       - name: Checkout pinned embed tools
         env:
