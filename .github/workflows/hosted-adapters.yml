@@ -103,34 +103,30 @@ jobs:
           from pathlib import Path
 
           for module in ("fbgql", "granary", "gallery_dl"):
-              print(
-                  "MODULE",
-                  module,
-                  importlib.util.find_spec(module),
-                  flush=True,
-              )
+              print("MODULE", module, importlib.util.find_spec(module), flush=True)
 
           paths = (
               ".social-tools/threads-crawler/argus-smoke.mjs",
               ".social-tools/skraper/cli/target/cli.jar",
               ".social-tools/fbgql/pyproject.toml",
-              ".social-tools/fbgql/setup.py",
               ".social-tools/granary/pyproject.toml",
-              ".social-tools/granary/setup.py",
           )
 
           for name in paths:
               print("PATH", name, Path(name).exists(), flush=True)
+
+          for folder in (
+              ".social-tools/threads-crawler",
+              ".social-tools/skraper",
+          ):
+              root = Path(folder)
+              print("FILES", folder, flush=True)
+              if not root.is_dir():
+                  raise SystemExit(f"Missing tool directory: {folder}")
+              for item in sorted(root.rglob("*")):
+                  if item.is_file() and len(item.relative_to(root).parts) <= 3:
+                      print(item, flush=True)
           PYCODE
-
-          echo "THREADS FILES"
-          find .social-tools/threads-crawler -maxdepth 2 \\
-            -type f | head -30
-
-          echo "SKRAPER BUILD FILES"
-          find .social-tools/skraper -maxdepth 3 \\
-            -type f \\( -name '*gradle*' -o -name 'pom.xml' \\) \\
-            | head -30
 
       - name: Check installed tool directories
         run: |
