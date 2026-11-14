@@ -32,6 +32,7 @@ jobs:
           python -m pip install -r ops/collect/requirements.txt
           python -m pip install requests==2.32.5
           python -m pip install loguru==0.7.3
+          python -m pip install selectolax==0.3.31 diff-match-patch==20241021
 
       - name: Checkout pinned social tools
         env:
