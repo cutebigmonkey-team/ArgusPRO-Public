@@ -96,6 +96,17 @@ jobs:
           print("CHROMIUM_FIXTURE_OK")
           PYCODE
 
+      - name: Install pinned fbgql and Granary
+        run: |
+          python -m pip install -e .social-tools/fbgql
+          python -m pip install -e .social-tools/granary
+          python -m pip check
+          python - <<'PYCODE'
+          import fbgql
+          from granary import facebook, instagram
+          print("FBGQL_AND_GRANARY_IMPORT_OK")
+          PYCODE
+
       - name: Diagnose remaining hosted runtimes
         run: |
           python - <<'PYCODE'
