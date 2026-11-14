@@ -93,6 +93,7 @@ jobs:
         env:
           PYTHONPATH: ops/collect:ops/drive:ops/local-storage:ops/hostless:.social-tools/tg-radar/src
           PYTHONDONTWRITEBYTECODE: "1"
+          ARGUS_FACEBOOK_DOM_TEST: "1"
         run: |
           python - <<'PY'
           import sys
@@ -108,6 +109,14 @@ jobs:
               "test_discovery.DiscoveryTests.test_actual_changedetection_baseline_change_and_replay",
               "test_facebook_x.PublicReaders.test_numeric_post_returned_with_opaque_permalink",
               "test_facebook_x.PublicReaders.test_article_requires_matching_author_and_status",
+              "test_embed.PinnedParserTests.test_actual_gallery_and_web_modules_no_media_download",
+              "test_cloud_social.SocialTests.test_browser_launches_inside_sanitized_worker_environment",
+              "test_facebook_public.FacebookPublicTests.test_real_browser_markup",
+              "test_remaining.UpstreamTests.test_actual_fbgql_discovery_and_feed_parser",
+              "test_remaining.UpstreamTests.test_actual_granary_instagram_converter",
+              "test_remaining.UpstreamTests.test_actual_granary_facebook_permalink_and_attachments",
+              "test_remaining.UpstreamTests.test_actual_skraper_parsers_four_platforms",
+              "test_remaining.UpstreamTests.test_actual_socialfetch_feed_parser",
           ]
 
           suite = unittest.defaultTestLoader.loadTestsFromNames(tests)
