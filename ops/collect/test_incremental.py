@@ -213,7 +213,7 @@ class IncrementalTests(unittest.TestCase):
         self.assertEqual(attempts[0]['status'],'http_404')
     def test_verified_permalink_recovery_preserves_the_source_date(self):
         url='https://www.kommersant.ru/doc/9078670'
-        source={'url':'https://fixture.invalid/source/39','platform':'rss','backfill_url':url,'id':'publisher'}
+        source={'url':'https://www.kommersant.ru/','platform':'rss','backfill_url':url,'id':'publisher'}
         row={'url':url,'text':'Regression fixture','published_at':'2026-11-02T03:30:37+03:00',
              'capture_mode':'public_article_excerpt','media':[]}
         with patch('crawl_common.CrawlState.read',return_value=(b'<html/>',url)),patch('web_pages.article_rows',return_value=[row]):

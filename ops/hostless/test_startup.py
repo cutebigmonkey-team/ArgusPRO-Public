@@ -26,7 +26,7 @@ from schedule_store import ScheduleStore
 
 SECRET='private-password-canary'
 ENV={'ARGUS_COLLECTOR_RUNTIME':'hostless','ARGUS_RUNTIME_MODE':'collect',
-     'ARGUS_ARCHIVE_WRITER_OWNER':'hostless','ARGUS_DRIVE_OAUTH':SECRET,
+     'ARGUS_ARCHIVE_WRITER_OWNER':'hostless','ARGUS_MIN_PRIVATE_SOURCES':'1','ARGUS_DRIVE_OAUTH':SECRET,
      'ARGUS_DRIVE_FOLDER_ID':'private-drive-id-canary','ARGUS_JSONBIN_KEY':SECRET,
      'ARGUS_JSONBIN_BIN_ID':'private-registry-id-canary',
      'DATABASE_URL':'postgresql://user:'+SECRET+'@private-host/database'}

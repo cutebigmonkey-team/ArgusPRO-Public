@@ -53,9 +53,13 @@ class SourceOrigins:
         return candidates.pop() if len(candidates) == 1 else 'unknown'
 
 
+def load_shipped_sources():
+    return json.loads(Path(__file__).with_name('sources.json').read_bytes())
+
+
 def catalog_origins(store, *, register=False):
     catalog = store.read_json('sources.json')
-    shipped = json.loads(Path(__file__).with_name('sources.json').read_bytes())
+    shipped = load_shipped_sources()
     if catalog is None:
         return SourceOrigins(shipped['sources'])
     # The normal writer commits the first package before refreshing sources.json in Drive.
