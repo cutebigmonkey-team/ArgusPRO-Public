@@ -1,0 +1,113 @@
+name: ARGUS public collection - read-only
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: argus-public-collection
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      PYTHONPATH: ops/collect:ops/drive:ops/local-storage:ops/hostless
+      PYTHONDONTWRITEBYTECODE: '1'
+      ARGUS_PUBLIC_COLLECT_SOURCES_JSON: ${{ vars.ARGUS_PUBLIC_COLLECT_SOURCES_JSON }}
+    steps:
+      - name: Checkout public source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+
+      - name: Validate explicit public source catalog
+        run: |
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          from urllib.parse import urlsplit, parse_qsl
+          from run import HOSTS
+          raw = os.environ.get('ARGUS_PUBLIC_COLLECT_SOURCES_JSON', '')
+          if not raw:
+              raise SystemExit('Missing ARGUS_PUBLIC_COLLECT_SOURCES_JSON repository variable')
+          try:
+              catalog = json.loads(raw)
+          except (ValueError, TypeError):
+              raise SystemExit('Invalid source catalog') from None
+          if not isinstance(catalog, dict) or set(catalog) != {'sources'} or not isinstance(catalog['sources'], list):
+              raise SystemExit('Catalog must have exactly one sources array')
+          sources = catalog['sources']
+          if not 1 <= len(sources) <= 250:
+              raise SystemExit('Expected 1-250 approved public sources; larger catalogs need another transport')
+          allowed = {'telegram','rss','mailru','youtube','facebook','instagram','threads','x','vk','ok','tiktok','reddit','rutube','gdelt'}
+          seen = set()
+          for row in sources:
+              if not isinstance(row, dict) or set(row) - {'id','name','platform','url','enabled','origin','region'}:
+                  raise SystemExit('Unapproved source fields')
+              if any(not isinstance(row.get(key), str) for key in ('id','platform','url')):
+                  raise SystemExit('Missing required source strings')
+              if (not re.fullmatch(r'[A-Za-z0-9_-]{3,100}', row['id']) or row['id'] in seen or
+                  row['platform'] not in allowed or row.get('enabled', True) is not True):
+                  raise SystemExit('Invalid ID, platform or status')
+              seen.add(row['id'])
+              url = urlsplit(row['url'])
+              if url.scheme != 'https' or not url.hostname or url.username or url.password or url.fragment:
+                  raise SystemExit('Unsafe source URL')
+              if any(re.search('token|secret|password|auth|session|api.?key', name, re.I)
+                     for name, _ in parse_qsl(url.query, keep_blank_values=True)):
+                  raise SystemExit('Credential-like URL query')
+              if row['platform'] in HOSTS and url.hostname not in HOSTS[row['platform']]:
+                  raise SystemExit('Wrong domain for platform')
+          target = Path('/tmp/argus-public-sources.json')
+          target.write_text(json.dumps(catalog, ensure_ascii=False), encoding='utf-8')
+          target.chmod(0o600)
+          print('Approved public source count:', len(sources))
+          PY
+
+      - name: Install public readers
+        run: |
+          python -m pip install -r ops/collect/requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Collect real public posts - no production writes
+        run: |
+          python ops/collect/run.py \
+            --sources /tmp/argus-public-sources.json \
+            --output /tmp/argus-public-results \
+            --sources-per-platform 0 \
+            --posts 5 \
+            --batch-seconds 180 \
+            --source-timeout 30 \
+            --concurrency 2 \
+            --shard-index ${{ matrix.shard }} \
+            --shard-count 4
+
+      - name: Aggregate-only diagnostics
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('/tmp/argus-public-results/report.json')
+          if not p.exists():
+              raise SystemExit('No collector report generated')
+          r = json.loads(p.read_text(encoding='utf-8'))
+          for v in r.get('platforms', []):
+              print(json.dumps({k:v.get(k) for k in ('platform','selected','posts','status','results')},ensure_ascii=False))
+          PY
