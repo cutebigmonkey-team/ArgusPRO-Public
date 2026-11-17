@@ -1,0 +1,45 @@
+name: ARGUS PostgreSQL Queue Integration
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-integration:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: argus_ingest_ci
+          POSTGRES_USER: argus_ci
+          POSTGRES_PASSWORD: local-ci-only-not-production
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U argus_ci -d argus_ingest_ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      PYTHONPATH: ops/ingest
+      ARGUS_PG_INTEGRATION_DSN: postgresql://argus_ci:local-ci-only-not-production@127.0.0.1:5432/argus_ingest_ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL driver
+        run: python -m pip install 'psycopg[binary]==3.3.8'
+      - name: Execute PostgreSQL integration tests
+        run: python -m unittest discover -s ops/ingest -p 'test_pg_queue_integration.py' -v
