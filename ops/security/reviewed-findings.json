@@ -8,6 +8,15 @@
       "line": 38,
       "disposition": "reviewed_disposable_fixture",
       "reason": "Exact original blob manually verified to generate isolated Compose test services, not a production binding. Changed bytes or other rules are never exempt."
+    },
+    {
+      "path": ".github/workflows/postgres-queue-validation.yml",
+      "blob": "9052dfdd5935a4dd0e999d44207a5de42dc6e170",
+      "sha256": "e64872ce126d209bd14ce7325e05d4aebba4b578a822efad52e7dbedddc98cfe",
+      "category": "database_credential_candidate",
+      "line": 32,
+      "disposition": "reviewed_disposable_fixture",
+      "reason": "Reviewed exact historical CI-only PostgreSQL fixture. The password was disposable, bound to the isolated GitHub Actions service, and not a production credential."
     }
   ]
 }

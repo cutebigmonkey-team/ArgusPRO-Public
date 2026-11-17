@@ -29,7 +29,8 @@ jobs:
           --health-retries 10
     env:
       PYTHONPATH: ops/ingest
-      ARGUS_PG_INTEGRATION_DSN: postgresql://argus_ci:local-ci-only-not-production@127.0.0.1:5432/argus_ingest_ci
+      ARGUS_PG_INTEGRATION_DSN: postgresql://argus_ci@127.0.0.1:5432/argus_ingest_ci
+      PGPASSWORD: local-ci-only-not-production
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
