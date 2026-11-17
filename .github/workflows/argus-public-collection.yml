@@ -259,6 +259,43 @@ jobs:
                   if age <= seconds:
                       stats[key] += 1
 
+          import os
+
+          summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary_path:
+              with open(summary_path, 'a', encoding='utf-8') as summary:
+                  summary.write(
+                      '### ARGUS Platform Health — '
+                      '${{ matrix.lane }} / shard ${{ matrix.shard }}'
+                      + chr(10) + chr(10)
+                  )
+                  summary.write(
+                      '| Platform | Checked | With posts | Dated | '
+                      'Fresh 5m | Fresh 15m | Fresh 60m |'
+                      + chr(10)
+                  )
+                  summary.write(
+                      '|---|---:|---:|---:|---:|---:|---:|'
+                      + chr(10)
+                  )
+
+                  for platform, st in sorted(freshness.items()):
+                      summary.write(
+                          f"| {platform} | {st['checked']} | "
+                          f"{st['with_posts']} | {st['dated']} | "
+                          f"{st['fresh_5m']} | {st['fresh_15m']} | "
+                          f"{st['fresh_60m']} |"
+                          + chr(10)
+                      )
+
+          for platform, st in sorted(freshness.items()):
+              if st['checked'] and not st['with_posts']:
+                  print(
+                      '::warning title=ARGUS collection gap::'
+                      f'{platform}: no verified posts '
+                      f'from {st["checked"]} checked sources'
+                  )
+
           for platform, stats in sorted(freshness.items()):
               print('FRESHNESS', json.dumps({
                   'platform': platform, **stats
