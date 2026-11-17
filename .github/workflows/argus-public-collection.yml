@@ -1,0 +1,318 @@
+name: ARGUS public collection - read-only
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '*/5 * * * *'
+    - cron: '2,17,32,47 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: argus-public-collection
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: github.event.repository.private == false && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+        lane: ${{ fromJSON(github.event_name == 'schedule' && (github.event.schedule == '*/5 * * * *' && '["fast"]' || '["extended"]') || '["fast","extended"]') }}
+    env:
+      PYTHONPATH: ops/collect:ops/drive:ops/local-storage:ops/hostless
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout public source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+
+      - name: Install public readers
+        run: |
+          python -m pip install -r ops/collect/requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Install pinned extended social readers
+        if: matrix.lane == 'extended'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y php-cli openjdk-17-jdk-headless maven
+
+          python ops/collect/setup_embed.py
+          python ops/collect/setup_remaining.py
+
+          python -m venv .social-tools/embed-python
+          .social-tools/embed-python/bin/python -m pip install \
+            -r ops/collect/requirements.txt \
+            -e .social-tools/gallery-dl \
+            pydantic==2.12.5
+
+          python - <<'PYCODE'
+          from pathlib import Path
+          root = Path.cwd()
+          packages = next(
+              (root / ".social-tools/embed-python").glob(
+                  "lib/python*/site-packages"
+              )
+          )
+          (packages / "argus_gallery_web.pth").write_text(
+              str(root / ".social-tools/gallery-dl-web/backend/src")
+              + chr(10),
+              encoding="utf-8"
+          )
+          PYCODE
+
+          python -m venv .social-tools/remaining-python
+          .social-tools/remaining-python/bin/python -m pip install \
+            -r ops/collect/requirements.txt \
+            -e .social-tools/fbgql \
+            -e .social-tools/granary
+
+          mvn -B -ntp -f .social-tools/skraper/pom.xml \
+            -pl cli -am -DskipTests package
+
+          test -s .social-tools/skraper/cli/target/cli.jar
+
+          .social-tools/embed-python/bin/python - <<'PYCODE'
+          import gallery_dl
+          from gallery_dl_web.gallerydl import config_builder
+          print("EMBED_RUNTIME_READY")
+          PYCODE
+
+          .social-tools/remaining-python/bin/python - <<'PYCODE'
+          import fbgql
+          from granary import facebook, instagram
+          print("REMAINING_RUNTIME_READY")
+          PYCODE
+
+          echo "PINNED_SOCIAL_READERS_READY"
+
+      - name: Validate explicit public source catalog
+        env:
+          ARGUS_PUBLIC_COLLECT_SOURCES_JSON: ${{ secrets.ARGUS_PUBLIC_COLLECT_SOURCES_JSON }}
+        run: |
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          from urllib.parse import urlsplit, parse_qsl
+          from run import HOSTS
+          raw = os.environ.get('ARGUS_PUBLIC_COLLECT_SOURCES_JSON', '')
+          if not raw:
+              raise SystemExit('Missing ARGUS_PUBLIC_COLLECT_SOURCES_JSON repository variable')
+          try:
+              catalog = json.loads(raw)
+          except (ValueError, TypeError):
+              raise SystemExit('Invalid source catalog') from None
+          if not isinstance(catalog, dict) or set(catalog) != {'sources'} or not isinstance(catalog['sources'], list):
+              raise SystemExit('Catalog must have exactly one sources array')
+          sources = catalog['sources']
+          if not 1 <= len(sources) <= 250:
+              raise SystemExit('Expected 1-250 approved public sources; larger catalogs need another transport')
+          allowed = {'telegram','rss','mailru','youtube','facebook','instagram','threads','x','vk','ok','tiktok','reddit','rutube','gdelt'}
+          seen = set()
+          for row in sources:
+              if not isinstance(row, dict) or set(row) - {'id','name','platform','url','enabled','origin','region'}:
+                  raise SystemExit('Unapproved source fields')
+              if any(not isinstance(row.get(key), str) for key in ('id','platform','url')):
+                  raise SystemExit('Missing required source strings')
+              if (not re.fullmatch(r'[A-Za-z0-9_-]{3,100}', row['id']) or row['id'] in seen or
+                  row['platform'] not in allowed or row.get('enabled', True) is not True):
+                  raise SystemExit('Invalid ID, platform or status')
+              seen.add(row['id'])
+              url = urlsplit(row['url'])
+              if url.scheme != 'https' or not url.hostname or url.username or url.password or url.fragment:
+                  raise SystemExit('Unsafe source URL')
+              if any(re.search('token|secret|password|auth|session|api.?key', name, re.I)
+                     for name, _ in parse_qsl(url.query, keep_blank_values=True)):
+                  raise SystemExit('Credential-like URL query')
+              if row['platform'] in HOSTS and url.hostname not in HOSTS[row['platform']]:
+                  raise SystemExit('Wrong domain for platform')
+          target = Path('/tmp/argus-public-sources.json')
+          target.write_text(json.dumps(catalog, ensure_ascii=False), encoding='utf-8')
+          target.chmod(0o600)
+          print('Approved public source count:', len(sources))
+          PY
+
+      - name: Split verified public sources by execution lane
+        env:
+          ARGUS_LANE: ${{ matrix.lane }}
+        run: |
+          python - <<'PYCODE'
+          import json, os
+          from collections import Counter
+          from pathlib import Path
+          fast = {'telegram','rss','youtube','threads','tiktok','rutube','mailru','reddit','gdelt'}
+          extended = {'facebook','instagram','vk','ok','x'}
+          lane = os.environ['ARGUS_LANE']
+          assert lane in ('fast','extended')
+          catalog = json.loads(Path('/tmp/argus-public-sources.json').read_text())
+          selected = [s for s in catalog['sources'] if s['platform'] in (fast if lane == 'fast' else extended)]
+          assert selected, 'No sources for selected lane'
+          p = Path('/tmp/argus-lane-sources.json')
+          p.write_text(json.dumps({'sources':selected}, ensure_ascii=False), encoding='utf-8')
+          p.chmod(0o600)
+          print('LANE_PLAN', json.dumps({'lane':lane,'sources':len(selected), 'platforms':dict(Counter(s['platform'] for s in selected))}))
+          PYCODE
+
+      - name: Collect real public posts - no production writes
+        env:
+          ARGUS_LANE: ${{ matrix.lane }}
+          ARGUS_EMBED_COLLECTION: ${{ matrix.lane == 'extended' && '1' || '0' }}
+          ARGUS_REMAINING_COLLECTION: ${{ matrix.lane == 'extended' && '1' || '0' }}
+        run: |
+          python ops/collect/run.py \
+            --sources /tmp/argus-lane-sources.json \
+            --output /tmp/argus-public-results \
+            --sources-per-platform 0 \
+            --posts 5 \
+            --batch-seconds 180 \
+            --source-timeout 30 \
+            --concurrency 2 \
+            --shard-index ${{ matrix.shard }} \
+            --shard-count 4
+
+      - name: Aggregate-only diagnostics
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('/tmp/argus-public-results/report.json')
+          if not p.exists():
+              raise SystemExit('No collector report generated')
+          r = json.loads(p.read_text(encoding='utf-8'))
+          from collections import Counter
+          from datetime import datetime, timezone
+          from statistics import median
+          ages = []
+          for row in r.get('sources', []):
+              # Source report stores no reliable per-post timestamp, so do not
+              # misrepresent collection time as publication freshness.
+              t = row.get('latest_published_at')
+              if not isinstance(t, str) or not t.strip():
+                  continue
+              try:
+                  age = (datetime.now(timezone.utc) - datetime.fromisoformat(t.replace('Z','+00:00'))).total_seconds()
+                  if age >= 0: ages.append(int(age))
+              except (ValueError, TypeError):
+                  pass
+          print('LANE_SUMMARY', json.dumps({
+              'lane':'${{ matrix.lane }}', 'total_records':sum(x.get('posts',0) for x in r.get('platforms', [])),
+              'selected_sources':sum(x.get('selected',0) for x in r.get('platforms', [])),
+              'latest_source_age_s_median':median(ages) if ages else None,
+              'latest_source_age_samples':len(ages),
+          }))
+
+          for v in r.get('platforms', []):
+              print(json.dumps({
+                  k: v.get(k)
+                  for k in ('platform', 'selected', 'posts', 'status', 'results')
+              }, ensure_ascii=False))
+          from collections import defaultdict
+          freshness = defaultdict(lambda: {
+              'checked': 0, 'with_posts': 0,
+              'fresh_5m': 0, 'fresh_15m': 0,
+              'fresh_60m': 0, 'dated': 0
+          })
+
+          for source in r.get('sources', []):
+              platform = source.get('platform', 'unknown')
+              stats = freshness[platform]
+              stats['checked'] += 1
+              if source.get('posts', 0) > 0:
+                  stats['with_posts'] += 1
+              stamp = source.get('latest_published_at')
+              if not isinstance(stamp, str):
+                  continue
+              try:
+                  published = datetime.fromisoformat(
+                      stamp.replace('Z', '+00:00')
+                  )
+                  if published.tzinfo is None:
+                      continue
+                  age = (
+                      datetime.now(timezone.utc) - published
+                  ).total_seconds()
+              except (ValueError, TypeError):
+                  continue
+              if age < 0:
+                  continue
+              stats['dated'] += 1
+              for seconds, key in (
+                  (300, 'fresh_5m'),
+                  (900, 'fresh_15m'),
+                  (3600, 'fresh_60m')
+              ):
+                  if age <= seconds:
+                      stats[key] += 1
+
+          import os
+
+          summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary_path:
+              with open(summary_path, 'a', encoding='utf-8') as summary:
+                  summary.write(
+                      '### ARGUS Platform Health — '
+                      '${{ matrix.lane }} / shard ${{ matrix.shard }}'
+                      + chr(10) + chr(10)
+                  )
+                  summary.write(
+                      '| Platform | Checked | With posts | Dated | '
+                      'Fresh 5m | Fresh 15m | Fresh 60m |'
+                      + chr(10)
+                  )
+                  summary.write(
+                      '|---|---:|---:|---:|---:|---:|---:|'
+                      + chr(10)
+                  )
+
+                  for platform, st in sorted(freshness.items()):
+                      summary.write(
+                          f"| {platform} | {st['checked']} | "
+                          f"{st['with_posts']} | {st['dated']} | "
+                          f"{st['fresh_5m']} | {st['fresh_15m']} | "
+                          f"{st['fresh_60m']} |"
+                          + chr(10)
+                      )
+
+          for platform, st in sorted(freshness.items()):
+              if st['checked'] and not st['with_posts']:
+                  print(
+                      '::warning title=ARGUS collection gap::'
+                      f'{platform}: no verified posts '
+                      f'from {st["checked"]} checked sources'
+                  )
+
+          for platform, stats in sorted(freshness.items()):
+              print('FRESHNESS', json.dumps({
+                  'platform': platform, **stats
+              }))
+
+          attempts = Counter()
+          for source in r.get('sources', []):
+              for attempt in source.get('attempts', []):
+                  tool = attempt.get('tool', 'unknown')
+                  status = attempt.get('status', 'unknown')
+                  attempts[(source.get('platform'), tool, status)] += 1
+
+          for (platform, tool, status), count in sorted(attempts.items()):
+              print(json.dumps({
+                  'platform': platform,
+                  'tool': tool,
+                  'status': status,
+                  'attempts': count
+              }, ensure_ascii=False))
+          PY
