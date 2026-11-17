@@ -36,6 +36,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install public readers
+        run: |
+          python -m pip install -r ops/collect/requirements.txt
+          python -m playwright install --with-deps chromium
+
       - name: Validate explicit public source catalog
         run: |
           python - <<'PY'
@@ -79,11 +84,6 @@ jobs:
           target.chmod(0o600)
           print('Approved public source count:', len(sources))
           PY
-
-      - name: Install public readers
-        run: |
-          python -m pip install -r ops/collect/requirements.txt
-          python -m playwright install --with-deps chromium
 
       - name: Collect real public posts - no production writes
         run: |
