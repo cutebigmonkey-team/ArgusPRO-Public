@@ -1,46 +1,20 @@
-# ARGUS PRO — isolated source candidate
+# ARGUS ingestion envelope — isolated prototype
 
-This directory contains application source and synthetic fixtures, with no
-imported Git ancestry and no configured remote. It is not a verified production
-release. Do not deploy it until private-asset completeness and all release gates
-are verified. No production resources were modified while preparing it.
+Scope: bounded canonical JSON + HMAC-SHA256 authenticity/integrity for candidate microbatches. No HTTP endpoint, no durable queue, no production writer, no credentials, no deployments and no live posts.
 
-## Runtime configuration
+Test in public repo:
 
-Keep archive credentials in existing Hostless secure bindings:
-`ARGUS_DRIVE_OAUTH`, `ARGUS_DRIVE_FOLDER_ID`, `DATABASE_URL`, optional
-`ARGUS_DATABASE_SESSION_URL`, `ARGUS_JSONBIN_KEY`, `ARGUS_JSONBIN_BIN_ID`,
-`ARGUS_JSONBIN_KEY_TYPE`, `ARGUS_RUNTIME_MODE`, `ARGUS_ARCHIVE_WRITER_OWNER`.
-AI uses existing `TYPESAFE_API_KEY` and private AI configuration.
+```bash
+PYTHONPATH=ops/ingest python3 -m unittest discover -s ops/ingest -p 'test_*.py' -v
+```
 
-Production source configuration is read from the existing private Drive
-`sources.json`, or from `ARGUS_PRIVATE_SOURCE_FILE` outside this source tree.
-Collection additionally requires an owner-confirmed positive
-`ARGUS_MIN_PRIVATE_SOURCES`. Missing, empty, duplicate-ID or undersized registries
-fail closed. Public `sources.json` is an empty fixture and never a production
-fallback. Verify all source IDs and existing cursor ownership before any rollout.
-Private registry approval/submission handling remains in the existing pipeline.
+Before enabling real delivery:
 
-Optional private configuration can be mounted outside the source tree via
-`ARGUS_PRIVATE_ASSETS_DIR`: reviewed origins/YouTube pins, discovery policy,
-platform views, source reviews, MAX mappings, public-surface aliases and enhanced
-per-source settings. Supply only reviewed existing values. Do not create a new
-archive location or change folder permissions. Private importer compatibility
-uses optional `ARGUS_LEGACY_SHARE_IDS_JSON` and `ARGUS_SOURCE_SHEET_URL`.
+1. Create a private TLS ingress with workload identity. Never grant production write credentials to PR jobs. Prefer short-lived OIDC credentials or scoped verified signatures.
+2. Durable storage with unique run_id and digest, rejecting any replay with a different digest. HMAC alone does not prevent replay.
+3. Explicit limits, retention, backlog metrics, quarantining and acknowledgement only after read-back from the fenced Hostless archive writer.
+4. Perform final record, origin, timestamp, platform, ownership, URL, and canonical-key validation in the existing package validation path before archiving.
+5. Do not use public GitHub artifacts for private posts, catalogs or candidate packages.
+6. Keep the Hostless fenced writer as the only archive writer. Test queue and writer integration before enabling any collection-to-archive delivery.
 
-The television catalog defaults to an empty public schema; tests use synthetic
-channels. A production programming catalog needs a separate approved runtime
-binding before TV functionality can be considered compatible. No private catalog
-is included in the Docker build context.
-
-See `ops/security/hostless.public.example.env`. Templates contain empty values;
-do not source them into a running worker. Public CI has no production secrets,
-writer credentials, production databases, deployment steps or collector schedules.
-
-## Validation
-
-The public workflow prepares security, frontend, real-engine, Chromium,
-PostgreSQL, collector/archive and exact Docker gates. It is not yet verified in a
-supported builder. Known optional parser fixture requirements must be satisfied
-without suppressing skips. Full third-party secret scanning, owner review of
-licensing/publication rights and exact Docker validation remain required.
+This prototype expects four shards as used by PR #2; not yet an approved production interface.
