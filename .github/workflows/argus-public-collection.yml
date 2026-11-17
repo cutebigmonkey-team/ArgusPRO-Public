@@ -7,6 +7,7 @@ on:
       - main
   schedule:
     - cron: '*/5 * * * *'
+    - cron: '2,17,32,47 * * * *'
 
 permissions:
   contents: read
@@ -24,6 +25,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3]
+        lane: ${{ fromJSON(github.event_name == 'schedule' && (github.event.schedule == '*/5 * * * *' && '["fast"]' || '["extended"]') || '["fast","extended"]') }}
     env:
       PYTHONPATH: ops/collect:ops/drive:ops/local-storage:ops/hostless
       PYTHONDONTWRITEBYTECODE: '1'
@@ -44,6 +46,7 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: Install pinned extended social readers
+        if: matrix.lane == 'extended'
         run: |
           sudo apt-get update
           sudo apt-get install -y php-cli openjdk-17-jdk-headless maven
@@ -143,13 +146,35 @@ jobs:
           print('Approved public source count:', len(sources))
           PY
 
+      - name: Split verified public sources by execution lane
+        env:
+          ARGUS_LANE: ${{ matrix.lane }}
+        run: |
+          python - <<'PYCODE'
+          import json, os
+          from collections import Counter
+          from pathlib import Path
+          fast = {'telegram','rss','youtube','threads','tiktok','rutube','mailru','reddit','gdelt'}
+          extended = {'facebook','instagram','vk','ok','x'}
+          lane = os.environ['ARGUS_LANE']
+          assert lane in ('fast','extended')
+          catalog = json.loads(Path('/tmp/argus-public-sources.json').read_text())
+          selected = [s for s in catalog['sources'] if s['platform'] in (fast if lane == 'fast' else extended)]
+          assert selected, 'No sources for selected lane'
+          p = Path('/tmp/argus-lane-sources.json')
+          p.write_text(json.dumps({'sources':selected}, ensure_ascii=False), encoding='utf-8')
+          p.chmod(0o600)
+          print('LANE_PLAN', json.dumps({'lane':lane,'sources':len(selected), 'platforms':dict(Counter(s['platform'] for s in selected))}))
+          PYCODE
+
       - name: Collect real public posts - no production writes
         env:
-          ARGUS_EMBED_COLLECTION: '1'
-          ARGUS_REMAINING_COLLECTION: '1'
+          ARGUS_LANE: ${{ matrix.lane }}
+          ARGUS_EMBED_COLLECTION: ${{ matrix.lane == 'extended' && '1' || '0' }}
+          ARGUS_REMAINING_COLLECTION: ${{ matrix.lane == 'extended' && '1' || '0' }}
         run: |
           python ops/collect/run.py \
-            --sources /tmp/argus-public-sources.json \
+            --sources /tmp/argus-lane-sources.json \
             --output /tmp/argus-public-results \
             --sources-per-platform 0 \
             --posts 5 \
@@ -170,6 +195,26 @@ jobs:
               raise SystemExit('No collector report generated')
           r = json.loads(p.read_text(encoding='utf-8'))
           from collections import Counter
+          from datetime import datetime, timezone
+          from statistics import median
+          ages = []
+          for row in r.get('sources', []):
+              # Source report stores no reliable per-post timestamp, so do not
+              # misrepresent collection time as publication freshness.
+              t = row.get('latest_published_at')
+              if not isinstance(t, str) or not t.strip():
+                  continue
+              try:
+                  age = (datetime.now(timezone.utc) - datetime.fromisoformat(t.replace('Z','+00:00'))).total_seconds()
+                  if age >= 0: ages.append(int(age))
+              except (ValueError, TypeError):
+                  pass
+          print('LANE_SUMMARY', json.dumps({
+              'lane':'${{ matrix.lane }}', 'total_records':sum(x.get('posts',0) for x in r.get('platforms', [])),
+              'selected_sources':sum(x.get('selected',0) for x in r.get('platforms', [])),
+              'latest_source_age_s_median':median(ages) if ages else None,
+              'latest_source_age_samples':len(ages),
+          }))
 
           for v in r.get('platforms', []):
               print(json.dumps({
