@@ -44,6 +44,58 @@ jobs:
           python -m pip install -r ops/collect/requirements.txt
           python -m playwright install --with-deps chromium
 
+      - name: Install pinned extended social readers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y php-cli openjdk-17-jdk-headless maven
+
+          python ops/collect/setup_embed.py
+          python ops/collect/setup_remaining.py
+
+          python -m venv .social-tools/embed-python
+          .social-tools/embed-python/bin/python -m pip install \
+            -r ops/collect/requirements.txt \
+            -e .social-tools/gallery-dl \
+            pydantic==2.12.5
+
+          python - <<'PYCODE'
+          from pathlib import Path
+          root = Path.cwd()
+          packages = next(
+              (root / ".social-tools/embed-python").glob(
+                  "lib/python*/site-packages"
+              )
+          )
+          (packages / "argus_gallery_web.pth").write_text(
+              str(root / ".social-tools/gallery-dl-web/backend/src") + "\\n"
+          )
+          PYCODE
+
+          python -m venv .social-tools/remaining-python
+          .social-tools/remaining-python/bin/python -m pip install \
+            -r ops/collect/requirements.txt \
+            -e .social-tools/fbgql \
+            -e .social-tools/granary
+
+          mvn -B -ntp -f .social-tools/skraper/pom.xml \
+            -pl cli -am -DskipTests package
+
+          test -s .social-tools/skraper/cli/target/cli.jar
+
+          .social-tools/embed-python/bin/python - <<'PYCODE'
+          import gallery_dl
+          from gallery_dl_web.gallerydl import config_builder
+          print("EMBED_RUNTIME_READY")
+          PYCODE
+
+          .social-tools/remaining-python/bin/python - <<'PYCODE'
+          import fbgql
+          from granary import facebook, instagram
+          print("REMAINING_RUNTIME_READY")
+          PYCODE
+
+          echo "PINNED_SOCIAL_READERS_READY"
+
       - name: Validate explicit public source catalog
         run: |
           python - <<'PY'
@@ -89,6 +141,9 @@ jobs:
           PY
 
       - name: Collect real public posts - no production writes
+        env:
+          ARGUS_EMBED_COLLECTION: '1'
+          ARGUS_REMAINING_COLLECTION: '1'
         run: |
           python ops/collect/run.py \
             --sources /tmp/argus-public-sources.json \
@@ -111,6 +166,26 @@ jobs:
           if not p.exists():
               raise SystemExit('No collector report generated')
           r = json.loads(p.read_text(encoding='utf-8'))
+          from collections import Counter
+
           for v in r.get('platforms', []):
-              print(json.dumps({k:v.get(k) for k in ('platform','selected','posts','status','results')},ensure_ascii=False))
+              print(json.dumps({
+                  k: v.get(k)
+                  for k in ('platform', 'selected', 'posts', 'status', 'results')
+              }, ensure_ascii=False))
+
+          attempts = Counter()
+          for source in r.get('sources', []):
+              for attempt in source.get('attempts', []):
+                  tool = attempt.get('tool', 'unknown')
+                  status = attempt.get('status', 'unknown')
+                  attempts[(source.get('platform'), tool, status)] += 1
+
+          for (platform, tool, status), count in sorted(attempts.items()):
+              print(json.dumps({
+                  'platform': platform,
+                  'tool': tool,
+                  'status': status,
+                  'attempts': count
+              }, ensure_ascii=False))
           PY
