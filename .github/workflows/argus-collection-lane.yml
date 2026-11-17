@@ -1,0 +1,178 @@
+name: ARGUS read-only collection lane
+on:
+  workflow_call:
+    inputs:
+      lane:
+        required: true
+        type: string
+      validation_only:
+        description: Run deterministic lane fixtures without catalog or network collection
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      public_sources:
+        required: false
+permissions:
+  contents: read
+jobs:
+  validate:
+    if: inputs.validation_only
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    env:
+      ARGUS_LANE: ${{ inputs.lane }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Validate requested lane and deterministic safety fixtures
+        run: |
+          python -c "import os; assert os.environ['ARGUS_LANE'] in ('fast', 'extended')"
+          python -m unittest discover -s ops/collect -p 'test_pilot_runtime.py' -v
+          python -m unittest discover -s ops/collect -p 'test_platform_workers.py' -v
+  collect:
+    if: ${{ !inputs.validation_only && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    concurrency:
+      group: argus-pilot-${{ inputs.lane }}-${{ matrix.shard }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      PYTHONPATH: ops/collect:ops/drive:ops/local-storage:ops/hostless
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout public source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+
+      - name: Install public readers
+        run: |
+          python -m pip install -r ops/collect/requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Install pinned extended social readers
+        if: inputs.lane == 'extended'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y php-cli openjdk-17-jdk-headless maven
+
+          python ops/collect/setup_embed.py
+          python ops/collect/setup_remaining.py
+
+          python -m venv .social-tools/embed-python
+          .social-tools/embed-python/bin/python -m pip install \
+            -r ops/collect/requirements.txt \
+            -e .social-tools/gallery-dl \
+            pydantic==2.12.5
+
+          python - <<'PYCODE'
+          from pathlib import Path
+          root = Path.cwd()
+          packages = next(
+              (root / ".social-tools/embed-python").glob(
+                  "lib/python*/site-packages"
+              )
+          )
+          (packages / "argus_gallery_web.pth").write_text(
+              str(root / ".social-tools/gallery-dl-web/backend/src")
+              + chr(10),
+              encoding="utf-8"
+          )
+          PYCODE
+
+          python -m venv .social-tools/remaining-python
+          .social-tools/remaining-python/bin/python -m pip install \
+            -r ops/collect/requirements.txt \
+            -e .social-tools/fbgql \
+            -e .social-tools/granary
+
+          mvn -B -ntp -f .social-tools/skraper/pom.xml \
+            -pl cli -am -DskipTests package
+
+          test -s .social-tools/skraper/cli/target/cli.jar
+
+          .social-tools/embed-python/bin/python - <<'PYCODE'
+          import gallery_dl
+          from gallery_dl_web.gallerydl import config_builder
+          print("EMBED_RUNTIME_READY")
+          PYCODE
+
+          .social-tools/remaining-python/bin/python - <<'PYCODE'
+          import fbgql
+          from granary import facebook, instagram
+          print("REMAINING_RUNTIME_READY")
+          PYCODE
+
+          echo "PINNED_SOCIAL_READERS_READY"
+
+      - name: Validate explicit public source catalog
+        env:
+          ARGUS_PUBLIC_COLLECT_SOURCES_JSON: ${{ secrets.public_sources }}
+        run: |
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          from urllib.parse import urlsplit, parse_qsl
+          from run import HOSTS
+          raw = os.environ.get('ARGUS_PUBLIC_COLLECT_SOURCES_JSON', '')
+          if not raw:
+              raise SystemExit('Missing ARGUS_PUBLIC_COLLECT_SOURCES_JSON repository variable')
+          try:
+              catalog = json.loads(raw)
+          except (ValueError, TypeError):
+              raise SystemExit('Invalid source catalog') from None
+          if not isinstance(catalog, dict) or set(catalog) != {'sources'} or not isinstance(catalog['sources'], list):
+              raise SystemExit('Catalog must have exactly one sources array')
+          sources = catalog['sources']
+          if not 1 <= len(sources) <= 250:
+              raise SystemExit('Expected 1-250 approved public sources; larger catalogs need another transport')
+          allowed = {'telegram','rss','mailru','youtube','facebook','instagram','threads','x','vk','ok','tiktok','reddit','rutube','gdelt'}
+          seen = set()
+          for row in sources:
+              if not isinstance(row, dict) or set(row) - {'id','name','platform','url','enabled','origin','region'}:
+                  raise SystemExit('Unapproved source fields')
+              if any(not isinstance(row.get(key), str) for key in ('id','platform','url')):
+                  raise SystemExit('Missing required source strings')
+              if (not re.fullmatch(r'[A-Za-z0-9_-]{3,100}', row['id']) or row['id'] in seen or
+                  row['platform'] not in allowed or row.get('enabled', True) is not True):
+                  raise SystemExit('Invalid ID, platform or status')
+              seen.add(row['id'])
+              url = urlsplit(row['url'])
+              if url.scheme != 'https' or not url.hostname or url.username or url.password or url.fragment:
+                  raise SystemExit('Unsafe source URL')
+              if any(re.search('token|secret|password|auth|session|api.?key', name, re.I)
+                     for name, _ in parse_qsl(url.query, keep_blank_values=True)):
+                  raise SystemExit('Credential-like URL query')
+              if row['platform'] in HOSTS and url.hostname not in HOSTS[row['platform']]:
+                  raise SystemExit('Wrong domain for platform')
+          target = Path('/tmp/argus-public-sources.json')
+          target.write_text(json.dumps(catalog, ensure_ascii=False), encoding='utf-8')
+          target.chmod(0o600)
+          print('Approved public source count:', len(sources))
+          PY
+
+      - name: Collect incremental pilot without delivery or checkpoint writes
+        env:
+          ARGUS_EMBED_COLLECTION: ${{ inputs.lane == 'extended' && '1' || '0' }}
+          ARGUS_REMAINING_COLLECTION: ${{ inputs.lane == 'extended' && '1' || '0' }}
+        run: >-
+          python ops/collect/pilot_runtime.py
+          --sources /tmp/argus-public-sources.json
+          --lane ${{ inputs.lane }}
+          --shard-index ${{ matrix.shard }} --shard-count 4
+          --output /tmp/argus-public-results
