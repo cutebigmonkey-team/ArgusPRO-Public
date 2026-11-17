@@ -221,6 +221,48 @@ jobs:
                   k: v.get(k)
                   for k in ('platform', 'selected', 'posts', 'status', 'results')
               }, ensure_ascii=False))
+          from collections import defaultdict
+          freshness = defaultdict(lambda: {
+              'checked': 0, 'with_posts': 0,
+              'fresh_5m': 0, 'fresh_15m': 0,
+              'fresh_60m': 0, 'dated': 0
+          })
+
+          for source in r.get('sources', []):
+              platform = source.get('platform', 'unknown')
+              stats = freshness[platform]
+              stats['checked'] += 1
+              if source.get('posts', 0) > 0:
+                  stats['with_posts'] += 1
+              stamp = source.get('latest_published_at')
+              if not isinstance(stamp, str):
+                  continue
+              try:
+                  published = datetime.fromisoformat(
+                      stamp.replace('Z', '+00:00')
+                  )
+                  if published.tzinfo is None:
+                      continue
+                  age = (
+                      datetime.now(timezone.utc) - published
+                  ).total_seconds()
+              except (ValueError, TypeError):
+                  continue
+              if age < 0:
+                  continue
+              stats['dated'] += 1
+              for seconds, key in (
+                  (300, 'fresh_5m'),
+                  (900, 'fresh_15m'),
+                  (3600, 'fresh_60m')
+              ):
+                  if age <= seconds:
+                      stats[key] += 1
+
+          for platform, stats in sorted(freshness.items()):
+              print('FRESHNESS', json.dumps({
+                  'platform': platform, **stats
+              }))
 
           attempts = Counter()
           for source in r.get('sources', []):
