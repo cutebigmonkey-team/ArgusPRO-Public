@@ -1,0 +1,25 @@
+name: ARGUS Scheduler Heartbeat
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 2
+
+    steps:
+      - name: Report scheduler health
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          echo "ARGUS_SCHEDULER_HEARTBEAT"
+          echo "event=$EVENT_NAME"
+          echo "run_id=$RUN_ID"
+          echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
