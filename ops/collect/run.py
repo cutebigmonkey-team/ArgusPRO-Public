@@ -278,8 +278,10 @@ def _error_code(error):
     if isinstance(error,socket.gaierror):return 'dns_error'
     if isinstance(error,ConnectionResetError):return 'connection_reset'
     if isinstance(error,ConnectionRefusedError):return 'connection_refused'
+    if isinstance(error,ImportError):
+        from collection_diagnostics import import_failure_code
+        return import_failure_code(error)
     for cls,code in ((UnboundLocalError,'runtime_unbound_local_error'),
-                     (ModuleNotFoundError,'dependency_missing'),(ImportError,'dependency_missing'),
                      (KeyError,'runtime_key_error'),(TypeError,'runtime_type_error'),
                      (NameError,'runtime_name_error'),(AttributeError,'runtime_attribute_error')):
         if isinstance(error,cls):return code
@@ -763,7 +765,7 @@ async def run(args):
                 # Optional metadata cannot discard verified publications. Leave
                 # finalization headroom inside the same source deadline.
                 from post_metrics import bounded_refresh
-                from source_adapters import WALL
+                from cloud_social import WALL
                 if not any(a.get('status') in WALL for a in attempts):
                     remaining=source_time_budget(args,source['platform'])-(time.monotonic()-begin)-2
                     if remaining > .01:

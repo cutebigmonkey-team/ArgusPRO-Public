@@ -65,6 +65,13 @@ jobs:
           python -m pip install -r ops/collect/requirements.txt
           python -m playwright install --with-deps chromium
 
+      - name: Smoke main collector interpreter before source admission
+        env:
+          ARGUS_LANE: ${{ inputs.lane }}
+        run: |
+          python ops/collect/collector_import_smoke.py --lane "$ARGUS_LANE"
+          python ops/collect/collector_import_smoke.py --lane "$ARGUS_LANE" --reverse
+
       - name: Install pinned extended social readers
         if: inputs.lane == 'extended'
         run: |
@@ -118,6 +125,8 @@ jobs:
           print("REMAINING_RUNTIME_READY")
           PYCODE
 
+          .social-tools/embed-python/bin/python ops/collect/collector_import_smoke.py --lane extended --environment embed
+          .social-tools/remaining-python/bin/python ops/collect/collector_import_smoke.py --lane extended --environment remaining
           echo "PINNED_SOCIAL_READERS_READY"
 
       - name: Validate explicit public source catalog

@@ -8,7 +8,7 @@ STATUSES = frozenset('''ok no_new_posts no_public_posts partial_results publishe
  timeout parser_error collection_failed collector_failed unreported
  tls_certificate_error tls_error dns_error network_error connection_reset connection_refused
  runtime_type_error runtime_key_error runtime_name_error runtime_attribute_error
- runtime_unbound_local_error dependency_missing browser_error source_deadline_exceeded
+ runtime_unbound_local_error dependency_missing internal_import_error circular_import_error internal_module_missing browser_error source_deadline_exceeded
  invalid_source invalid_url unexpected_destination private_destination invalid_channel
  channel_id_unresolved channel_id_unavailable channel_id_unverified invalid_channel_id
  unverified_markup no_verified_page no_verified_posts stale_feed_only tool_unavailable
@@ -52,10 +52,40 @@ def public_tool(value):
     return value if isinstance(value, str) and value in TOOLS else 'other_reader'
 
 
+# Only public, known module names may appear in diagnostics, never arbitrary
+# ImportError.name values or exception messages.
+INTERNAL_IMPORTS = frozenset(('source_adapters', 'cloud_social', 'post_metrics', 'run',
+    'http_pool', 'feed_history', 'youtube_history', 'telegram_history', 'candidate_audit',
+    'record_quality', 'url_identity', 'source_health', 'crawl_common', 'youtube_feed',
+    'browser_public', 'remaining_http', 'collection_diagnostics', 'collector_import_smoke',
+    'embed_social', 'remaining_social', 'rss_gateway', 'threads_public', 'public_embeds',
+    'media_metadata', 'gdelt_public', 'runtime_policy', 'tinyfish_fetch', 'x_api', 'depth',
+    'source_admission', 'platform_workers', 'browser_pool', 'storage'))
+IMPORT_MODULES = INTERNAL_IMPORTS | frozenset(('requests', 'urllib3', 'bs4', 'feedparser',
+    'playwright', 'trafilatura', 'yt_dlp', 'psycopg', 'gallery_dl', 'gallery_dl_web',
+    'fbgql', 'granary', 'certifi', 'charset_normalizer', 'idna'))
+
+
+def import_failure_code(error):
+    name = getattr(error, 'name', None)
+    root = name.split('.', 1)[0] if isinstance(name, str) else None
+    if isinstance(error, ModuleNotFoundError):
+        return 'internal_module_missing' if root in INTERNAL_IMPORTS else 'dependency_missing'
+    # Inspect CPython's standard circular-import marker internally only; the
+    # actual exception text never leaves this process.
+    if 'partially initialized module' in str(error):
+        return 'circular_import_error'
+    return 'internal_import_error'
+
+
 def diagnostic(error, code, phase='unknown'):
     row = {'code': public_status(code),
            'exception_type': type(error).__name__ if type(error).__name__ in TYPES else 'OtherException',
            'phase': phase if phase in PHASES else 'unknown'}
+    if isinstance(error, ImportError):
+        name = getattr(error, 'name', None)
+        root = name.split('.', 1)[0] if isinstance(name, str) else None
+        row['import_module'] = root if root in IMPORT_MODULES else 'NOT_VERIFIED'
     tb = error.__traceback__
     while tb:
         path = Path(tb.tb_frame.f_code.co_filename)

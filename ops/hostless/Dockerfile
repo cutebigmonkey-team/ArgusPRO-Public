@@ -33,6 +33,7 @@ FROM worker-source AS comments-backend-check
 COPY .github/workflows/hosted-adapters.yml /app/.github/workflows/hosted-adapters.yml
 COPY .github/workflows/argus-public-collection.yml /app/.github/workflows/argus-public-collection.yml
 COPY .github/workflows/argus-collection-lane.yml /app/.github/workflows/argus-collection-lane.yml
+COPY .github/workflows/public-validation.yml /app/.github/workflows/public-validation.yml
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends postgresql \
     && rm -rf /var/lib/apt/lists/*

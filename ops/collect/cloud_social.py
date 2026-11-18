@@ -12,6 +12,8 @@ import time
 from urllib.parse import urlsplit
 
 STOP = {'http_401', 'http_403', 'http_429', 'login_required', 'challenge_required'}
+# Shared access policy must not require optional adapter HTTP dependencies.
+WALL = STOP | {'unexpected_destination', 'invalid_source', 'deferred_rate_limit', 'disabled_by_registry'}
 MANIFEST = json.loads(Path(__file__).with_name('social-upstreams.json').read_text())
 
 

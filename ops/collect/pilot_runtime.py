@@ -15,7 +15,7 @@ from statistics import median
 import subprocess
 import sys
 import tempfile
-from collection_diagnostics import public_status, public_tool, TYPES, PHASES, MODULES
+from collection_diagnostics import public_status, public_tool, TYPES, PHASES, MODULES, IMPORT_MODULES
 
 LANES = {
     'fast': frozenset(('telegram', 'rss', 'youtube', 'threads', 'tiktok',
@@ -111,6 +111,9 @@ def coverage(selected, report, posts, failed=False, now=None):
             module = module if module in MODULES else 'collector'
             line = error.get('line')
             line = line if type(line) is int and 0 < line < 100000 else 0
+            imported = error.get('import_module')
+            if imported in IMPORT_MODULES:
+                module = module + '[' + imported + ']'
             key = f'{phase}:{code}:{kind}:{module}:{line}'
             stats['error_diagnostics'][key] = stats['error_diagnostics'].get(key, 0) + 1
         stats['sources_with_posts'] += row.get('posts', 0) > 0
