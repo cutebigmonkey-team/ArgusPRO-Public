@@ -13,14 +13,13 @@ from bs4 import BeautifulSoup
 
 from browser_public import page_error
 from candidate_feeds import tiktok_target
-from cloud_social import STOP, process, require_cloud, threads_rows, threads_target, tool_root
+from cloud_social import STOP, WALL, process, require_cloud, threads_rows, threads_target, tool_root
 from public_embeds import timestamp
 from remaining_http import PublicHTTP, StopCollection
 from run import error_code, post, source_valid, url_ok
 from social_links import identity
 
 PINS = json.loads(Path(__file__).with_name('source-adapters.json').read_text())
-WALL = STOP | {'unexpected_destination', 'invalid_source', 'deferred_rate_limit', 'disabled_by_registry'}
 X = re.compile(r'/([A-Za-z0-9_]{1,15})(?:/status/(\d{1,22}))?/?')
 ACTORS = {'socialdataapi-reels': 'ZOChpvBhFGxNLydzz',
           'logiover-threads': 'logiover~threads-scraper'}

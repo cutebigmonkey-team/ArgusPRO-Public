@@ -12,6 +12,15 @@ request_metrics=ContextVar('pooled_http_metrics',default=None)
 
 
 def request(url,headers,timeout,*,response_headers=None):
+    # asyncio cancellation cannot stop a running synchronous HTTP worker.
+    # Bound pool admission + request waits by the copied source deadline and
+    # reserve a second for the collector to finalize already parsed records.
+    from depth import source_deadline
+    deadline=source_deadline.get()
+    if deadline is not None:
+        remaining=deadline-time.monotonic()-1
+        if remaining<=0:raise TimeoutError('source_deadline')
+        timeout=min(timeout,max(.001,remaining/2))
     response=None
     started=time.monotonic();metrics=request_metrics.get()
     if metrics is not None:metrics['requests']+=1
