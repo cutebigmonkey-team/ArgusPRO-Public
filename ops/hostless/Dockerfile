@@ -31,6 +31,8 @@ USER 10001:10001
 # only in this disposable build stage and never connects to the production DB.
 FROM worker-source AS comments-backend-check
 COPY .github/workflows/hosted-adapters.yml /app/.github/workflows/hosted-adapters.yml
+COPY .github/workflows/argus-public-collection.yml /app/.github/workflows/argus-public-collection.yml
+COPY .github/workflows/argus-collection-lane.yml /app/.github/workflows/argus-collection-lane.yml
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends postgresql \
     && rm -rf /var/lib/apt/lists/*
