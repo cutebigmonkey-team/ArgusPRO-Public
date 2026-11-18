@@ -264,7 +264,7 @@ def source_valid(source):
     if platform=='instagram' and urllib.parse.urlsplit(url).path.strip('/').split('/')[0] in ('accounts','explore','direct'):return False
     return platform=='rss' or (platform=='mailru' and (host=='mail.ru' or host.endswith('.mail.ru'))) or host in HOSTS.get(platform,())
 
-def error_code(error):
+def _error_code(error):
     if isinstance(error,urllib.error.HTTPError):
         if error.code in (429,503) and error.headers:
             from source_health import note_retry_after
@@ -273,6 +273,17 @@ def error_code(error):
     if isinstance(error,(TimeoutError,asyncio.TimeoutError)): return 'timeout'
     if type(error).__module__.startswith('playwright') and type(error).__name__=='TimeoutError':return 'timeout'
     if isinstance(error,ValueError) and re.fullmatch(r'[a-z0-9_]{1,70}',str(error)): return str(error)
+    if isinstance(error,ssl.SSLCertVerificationError):return 'tls_certificate_error'
+    if isinstance(error,ssl.SSLError):return 'tls_error'
+    if isinstance(error,socket.gaierror):return 'dns_error'
+    if isinstance(error,ConnectionResetError):return 'connection_reset'
+    if isinstance(error,ConnectionRefusedError):return 'connection_refused'
+    for cls,code in ((UnboundLocalError,'runtime_unbound_local_error'),
+                     (ModuleNotFoundError,'dependency_missing'),(ImportError,'dependency_missing'),
+                     (KeyError,'runtime_key_error'),(TypeError,'runtime_type_error'),
+                     (NameError,'runtime_name_error'),(AttributeError,'runtime_attribute_error')):
+        if isinstance(error,cls):return code
+    if type(error).__module__.startswith('playwright'):return 'browser_error'
     if isinstance(error,urllib.error.URLError):
         reason=error.reason
         if isinstance(reason,ssl.SSLCertVerificationError):return 'tls_certificate_error'
@@ -283,6 +294,20 @@ def error_code(error):
         if isinstance(reason,ConnectionRefusedError):return 'connection_refused'
         return 'network_error'
     return 'collection_failed'
+
+
+def error_code(error):
+    code = _error_code(error)
+    import depth
+    trace = depth.attempt_trace.get()
+    if trace is not None:
+        from collection_diagnostics import diagnostic
+        errors = trace.setdefault('errors', [])
+        row = diagnostic(error, code, trace.get('phase', 'unknown'))
+        if row not in errors and len(errors) < 16:
+            errors.append(row)
+    return code
+
 
 async def collect_source(browser,source,limit,media_fallback=False,*,actor_token=None,primary_result=None):
     if (os.getenv('ARGUS_SOURCE_ADAPTERS') == '1' and source_valid(source)
@@ -541,7 +566,7 @@ async def run(args):
     import depth
     backfill=getattr(args,'backfill',False)
     depth.mode.set('backfill' if backfill else 'live')
-    depth.bounded_poll.set(bool(incremental and getattr(args,'stream_results',False)))
+    depth.bounded_poll.set(bool(incremental and (getattr(args,'stream_results',False) or getattr(args,'bounded_poll',False))))
     batch_time=dt.datetime.now(dt.timezone.utc)
     hours=0 if backfill else getattr(args,'window_hours',0)
     since=batch_time-dt.timedelta(hours=hours) if hours and not catalog.get('permalink_backfill') else None
@@ -735,15 +760,25 @@ async def run(args):
             metrics_fit=(not getattr(args,'stream_results',False) or
                          time.monotonic()-begin+10 < source_time_budget(args,source['platform']))
             if (incremental or backfill) and can_request and items and status in ('ok','no_new_posts') and time.monotonic()-begin < (20 if depth.bounded_poll.get() else 45) and metrics_fit:
-                from post_metrics import refresh,bounded_refresh
+                # Optional metadata cannot discard verified publications. Leave
+                # finalization headroom inside the same source deadline.
+                from post_metrics import bounded_refresh
                 from source_adapters import WALL
                 if not any(a.get('status') in WALL for a in attempts):
-                    if depth.bounded_poll.get():
-                        items,refreshed=await bounded_refresh(source,items,cursor if cursor.get('url')==source['url'] else {})
-                    else:refreshed=await asyncio.to_thread(refresh,source,items,cursor if cursor.get('url')==source['url'] else {})
-                    if refreshed:
-                        metric_attempt,metric_state=refreshed
-                        attempts.append(metric_attempt)
+                    remaining=source_time_budget(args,source['platform'])-(time.monotonic()-begin)-2
+                    if remaining > .01:
+                        try:
+                            trace=depth.attempt_trace.get()
+                            if trace is not None:trace['phase']='enrichment'
+                            items,refreshed=await bounded_refresh(source,items,
+                                cursor if cursor.get('url')==source['url'] else {},seconds=min(6,remaining))
+                            if refreshed:
+                                metric_attempt,metric_state=refreshed
+                                attempts.append(metric_attempt)
+                        except Exception as error:
+                            attempts.append({'tool':'public_post_metrics','posts':0,'status':error_code(error)})
+                    else:
+                        attempts.append({'tool':'public_post_metrics','posts':0,'status':'deferred_budget'})
             if source['platform']=='x' and status=='http_503' and (hints or any(a.get('retry_after') for a in attempts)):
                 paused_platforms.add('x')
             if (status in ('http_429','rate_limited') or any(a.get('status') in ('http_429','rate_limited') for a in attempts)) and (incremental or any(os.environ.get(flag)=='1' for flag in ('ARGUS_SOURCE_ADAPTERS','ARGUS_FACEBOOK_X','ARGUS_SOCIAL_COLLECTION','ARGUS_REMAINING_COLLECTION','ARGUS_EMBED_COLLECTION'))) and group in paced:
@@ -762,6 +797,8 @@ async def run(args):
                     attempts.append({'tool':'publisher_tiktok_embed','status':error_code(error),'posts':0})
             if hints and status=='http_503':
                 paused_platforms.add(group)
+            trace=depth.attempt_trace.get()
+            if trace is not None:trace['phase']='normalization'
             checked_at=now()
             if 'next_url' in progress and source['id'] not in state_updates and (items or progress['next_url']):
                 state_updates[source['id']]={**({'x_api':cursor['x_api']} if cursor.get('url')==source['url'] and cursor.get('x_api') else {}),
@@ -860,7 +897,7 @@ async def run(args):
                 request_metrics.set(transport)
                 hints=[]
                 retry_hints.set(hints)
-                trace={'attempts':[]}
+                trace={'attempts':[],'errors':[],'phase':'extraction'}
                 depth.attempt_trace.set(trace)
                 try:
                     async with semaphore:
@@ -876,7 +913,7 @@ async def run(args):
                         paused_platforms.add(platform)
                     skipped(source,status)
                     results[-1].update(checked_at=now(),attempts=trace['attempts']+[
-                        {'tool':'source_deadline','status':status,'posts':0,'error_type':type(exc).__name__}])
+                        {'tool':'source_deadline' if status=='timeout' else 'source_execution','status':status,'posts':0,'error_type':type(exc).__name__}])
                     if source['id'] in started_at:
                         results[-1]['started_at']=started_at[source['id']]
                         results[-1]['seconds']=round((instant(results[-1]['checked_at'])-instant(started_at[source['id']])).total_seconds(),3)
@@ -885,6 +922,7 @@ async def run(args):
                     for row in reversed(results):
                         if row['source_id']==source['id']:
                             row['pooled_http']={k:round(v,3) for k,v in transport.items()}
+                            row['diagnostics']=trace['errors']
                             break
                     stream_result(source)
             async def admitted():
@@ -1006,6 +1044,7 @@ if __name__=='__main__':
     parser.add_argument('--incremental',action='store_true')
     parser.add_argument('--backfill',action='store_true')
     parser.add_argument('--stream-results',action='store_true')
+    parser.add_argument('--bounded-poll',action='store_true',help='Use bounded head discovery without requiring a leased streaming spool')
     parser.add_argument('--batch-seconds',type=int,default=240)
     parser.add_argument('--source-timeout',type=int,default=165)
     parser.add_argument('--concurrency',type=int,choices=range(1,7))

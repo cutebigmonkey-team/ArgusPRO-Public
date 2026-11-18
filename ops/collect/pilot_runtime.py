@@ -15,6 +15,7 @@ from statistics import median
 import subprocess
 import sys
 import tempfile
+from collection_diagnostics import public_status, public_tool, TYPES, PHASES, MODULES
 
 LANES = {
     'fast': frozenset(('telegram', 'rss', 'youtube', 'threads', 'tiktok',
@@ -70,14 +71,7 @@ def coverage(selected, report, posts, failed=False, now=None):
     for source in selected:
         row = observed.get(source['id'], {})
         status = row.get('status', 'collector_failed' if failed else 'unreported')
-        allowed_statuses = {'ok', 'no_new_posts', 'no_public_posts', 'partial_results',
-                            'publisher_only', 'deferred_budget', 'deferred_rate_limit',
-                            'disabled_by_registry', 'not_due', 'http_429', 'rate_limited',
-                            'gateway_rate_limited', 'login_required', 'http_401',
-                            'http_403', 'challenge_required', 'robots_denied',
-                            'timeout', 'parser_error', 'collector_failed', 'unreported'}
-        if status not in allowed_statuses:
-            status = 'other_collector_error'
+        status = public_status(status)
         stats = platforms.setdefault(source['platform'], {
             'assigned': 0, 'started': 0, 'reported': 0, 'statuses': Counter(),
             'extracted_records': 0, 'dated_records': 0,
@@ -87,6 +81,8 @@ def coverage(selected, report, posts, failed=False, now=None):
             'archive_writes': 'NOT_MEASURABLE',
             'frontend_visible_posts': 'NOT_MEASURABLE',
             'sources_with_posts': 0, 'dated_sources': 0,
+            'completed_checks': 0, 'failed_checks': 0, 'partial_checks': 0,
+            'restricted_checks': 0, 'deferred_checks': 0, 'error_diagnostics': {},
             'sources_fresh_5m': 0, 'sources_fresh_15m': 0, 'sources_fresh_60m': 0,
             'latest_source_age_s_median': None, 'reader_attempts': {},
             '_source_ages': [],
@@ -95,6 +91,28 @@ def coverage(selected, report, posts, failed=False, now=None):
         stats['reported'] += bool(row)
         stats['started'] += bool(row.get('started_at'))
         stats['statuses'][status] += 1
+        if status in ('ok', 'no_new_posts', 'no_public_posts'):
+            stats['completed_checks'] += 1
+        elif status in ('partial_results', 'publisher_only', 'partial_telegram_cards'):
+            stats['partial_checks'] += 1
+        elif status in ('deferred_budget', 'deferred_rate_limit', 'not_due', 'disabled_by_registry'):
+            stats['deferred_checks'] += 1
+        elif status.startswith('robots_') or status in ('login_required', 'challenge_required', 'http_401', 'http_403'):
+            stats['restricted_checks'] += 1
+        else:
+            stats['failed_checks'] += 1
+        for error in row.get('diagnostics', []):
+            code = public_status(error.get('code'))
+            kind = error.get('exception_type')
+            kind = kind if kind in TYPES else 'OtherException'
+            phase = error.get('phase')
+            phase = phase if phase in PHASES else 'unknown'
+            module = error.get('module')
+            module = module if module in MODULES else 'collector'
+            line = error.get('line')
+            line = line if type(line) is int and 0 < line < 100000 else 0
+            key = f'{phase}:{code}:{kind}:{module}:{line}'
+            stats['error_diagnostics'][key] = stats['error_diagnostics'].get(key, 0) + 1
         stats['sources_with_posts'] += row.get('posts', 0) > 0
         stamp = row.get('latest_published_at')
         if isinstance(stamp, str):
@@ -108,18 +126,11 @@ def coverage(selected, report, posts, failed=False, now=None):
                         stats[key] += age <= seconds
             except (ValueError, TypeError, OverflowError):
                 pass
-        allowed_tools = {'anonymous_policy', 'detail_enrichment', 'enhanced_web',
-                         'gdelt_public_json', 'instaloader', 'playwright_article',
-                         'public_embed', 'publisher_tiktok_embed', 'rss_bridge', 'rsshub',
-                         'source_deadline', 'source_validation', 'telegram_public_head',
-                         'telegram_public_history', 'threads_public_json', 'tinyfish_fetch',
-                         'yt-dlp', 'sipher', 'tiktok-cli', 'feeds', 'playwright',
-                         'gallery-dl', 'granary', 'fbgql', 'skraper', 'vkrss', 'socialfetch'}
         for attempt in row.get('attempts', []):
             tool = attempt.get('tool')
-            tool = tool if tool in allowed_tools else 'other_reader'
+            tool = public_tool(tool)
             attempt_status = attempt.get('status')
-            attempt_status = attempt_status if attempt_status in allowed_statuses else 'other_collector_error'
+            attempt_status = public_status(attempt_status)
             counts = stats['reader_attempts'].setdefault(tool, {})
             counts[attempt_status] = counts.get(attempt_status, 0) + 1
     for post in posts:
@@ -145,6 +156,11 @@ def coverage(selected, report, posts, failed=False, now=None):
     for stats in platforms.values():
         ages = stats.pop('_source_ages')
         stats['latest_source_age_s_median'] = median(ages) if ages else None
+        stats['collection_health'] = (
+            'BROKEN' if stats['failed_checks'] == stats['assigned'] else
+            'DEGRADED' if stats['failed_checks'] or stats['partial_checks'] or stats['deferred_checks'] else
+            'ACCESS_RESTRICTED' if stats['restricted_checks'] else
+            'CONTENT_OBSERVED' if stats['extracted_records'] else 'NO_CONTENT_OBSERVED')
     return {'mode': 'pilot_read_only', 'checkpoint_advanced': False,
             'delivery': 'BLOCKED_PRIVATE_INGESTION_SERVICE', 'platforms': platforms,
             'unreported': len(expected - observed.keys())}
@@ -174,7 +190,7 @@ def execute(args, runner=subprocess.run):
             command = [sys.executable, str(Path(__file__).with_name('run.py')),
                        '--sources', str(source_path), '--output', str(output),
                        '--sources-per-platform', '0', '--posts', '5',
-                       '--incremental', '--adaptive', '--telegram-history',
+                       '--incremental', '--adaptive', '--telegram-history', '--bounded-poll',
                        '--batch-seconds', '180', '--source-timeout', '30',
                        '--concurrency', '2', '--shard-index', str(args.shard_index),
                        '--shard-count', str(args.shard_count)]
@@ -203,11 +219,14 @@ def execute(args, runner=subprocess.run):
             stats = catalog_platforms.setdefault(source['platform'], {'configured': 0, 'enabled': 0})
             stats['configured'] += 1
             stats['enabled'] += source.get('enabled', True) is True
-        result.update(catalog_platforms=catalog_platforms,
+        result.update(execution_status='COMPLETED' if code == 0 else 'FAILED',
+                      catalog_platforms=catalog_platforms,
                       lane=args.lane, shard=args.shard_index, configured=len(catalog['sources']),
                       enabled=sum(s.get('enabled', True) is True for s in catalog['sources']))
         (output / 'coverage.json').write_text(json.dumps(result, indent=2))
         print(json.dumps(result))  # Aggregate counts and fixed status codes only.
+        if any(v['collection_health'] in ('BROKEN', 'DEGRADED') for v in result['platforms'].values()):
+            print('::warning title=ARGUS source health::Collection failures are present; job completion does not imply collection health')
         summary = os.environ.get('GITHUB_STEP_SUMMARY')
         if summary:
             with open(summary, 'a', encoding='utf-8') as handle:
