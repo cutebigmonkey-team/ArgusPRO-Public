@@ -12,6 +12,6 @@ if __name__=='__main__':
     for pattern in ('test_pg_queue_integration.py','test_phase2_postgres.py'):
         suite.addTests(loader.discover(root,pattern=pattern))
     result=unittest.TextTestRunner(verbosity=2).run(suite)
-    if result.testsRun<19 or result.skipped or not result.wasSuccessful():
+    if result.testsRun<24 or result.skipped or not result.wasSuccessful():
         raise SystemExit('postgres_gate_failed_or_incomplete')
     raise SystemExit(0)

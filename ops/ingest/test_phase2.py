@@ -132,7 +132,7 @@ class ConsumerTests(unittest.TestCase):
 
     def test_http_200_or_partial_content_never_acknowledges(self):
         for receipt in ({'status':200},None):
-            lease=self.lease();queue=Mock();queue.claim_part.return_value=lease
+            lease=self.lease();queue=Mock();queue.verification_siblings.return_value=[];queue.claim_part.return_value=lease
             archive=Mock();archive.readback.return_value=receipt
             consumer=TrustedHostlessConsumer(queue,archive,lambda:True,enabled=True)
             with self.assertRaises(ValueError):consumer.consume_once(now=WHEN)
@@ -141,13 +141,13 @@ class ConsumerTests(unittest.TestCase):
         with self.assertRaises(ValueError):verify_readback(lease['body'],receipt)
 
     def test_exact_independent_content_readback_is_required(self):
-        lease=self.lease();queue=Mock();queue.claim_part.return_value=lease
+        lease=self.lease();queue=Mock();queue.verification_siblings.return_value=[];queue.claim_part.return_value=lease
         archive=Mock();archive.readback.return_value=self.receipt(lease)
         TrustedHostlessConsumer(queue,archive,lambda:True,enabled=True).consume_once(now=WHEN)
         queue.acknowledge_part.assert_called_once_with(lease['run_id'],'fixture',verified_body_sha=lease['sha256'],now=WHEN)
 
     def test_crash_and_expired_writer_never_advance(self):
-        lease=self.lease();queue=Mock();queue.claim_part.return_value=lease
+        lease=self.lease();queue=Mock();queue.verification_siblings.return_value=[];queue.claim_part.return_value=lease
         archive=Mock();archive.import_candidate.side_effect=SystemExit('fixture crash')
         with self.assertRaises(SystemExit):TrustedHostlessConsumer(queue,archive,lambda:True,enabled=True).consume_once(now=WHEN)
         queue.acknowledge_part.assert_not_called()
@@ -202,7 +202,7 @@ class DeploymentBoundaryTests(unittest.TestCase):
         self.assertIn('run_postgres_gate.py',workflow)
         gate=(root/'ops/ingest/run_postgres_gate.py').read_text()
         self.assertIn('result.skipped',gate)
-        self.assertIn('result.testsRun<19',gate)
+        self.assertIn('result.testsRun<24',gate)
 
 
 class CursorRecoveryTests(unittest.TestCase):

@@ -143,5 +143,87 @@ class Phase2PostgreSQLTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.queue.acknowledge(lease['run_id'],lease['lease_token'],archive_verified=True,now=fixtures.WHEN)
         self.assertEqual(self.queue.recover_cursor(fixtures.SID)['revision'],0)
 
+    def _archive_fault_is_recoverable(self, fault):
+        from test_journal_port import Journal
+        from journal_port import ExistingJournalPort
+        journal=Journal();self.addCleanup(journal.close)
+        port=ExistingJournalPort(journal,lambda:True,enabled=True)
+        packet=fixtures.parts(2)[0];body=canonical(packet);bid=packet['group_id']+':0'
+        self.submit(packet)
+        port.import_candidate(body,batch_id=bid)
+        name='live-'+journal.head['sha']+'.json';original=journal.store.files[name]
+        if fault=='missing':del journal.store.files[name]
+        else:journal.store.files[name]=b'corrupt journal bytes'
+        consumer=TrustedHostlessConsumer(self.queue,port,lambda:True,enabled=True)
+        for offset in (0,10):
+            with self.assertRaises(ValueError):consumer.consume_once(now=fixtures.WHEN+timedelta(minutes=offset))
+            self.assertEqual(self.queue.recover_cursor(fixtures.SID)['revision'],0)
+            state,saved=self.conn.execute('SELECT state,body FROM argus_ingest.batches').fetchone()
+            self.assertEqual(state,'pending');self.assertEqual(bytes(saved),body)
+        journal.store.files[name]=original
+        consumer.consume_once(now=fixtures.WHEN+timedelta(minutes=20))
+        self.assertEqual(self.queue.recover_cursor(fixtures.SID)['revision'],1)
+        self.assertEqual(journal.index.count(),2)
+
+    def test_real_journal_missing_page_never_acknowledges_and_retry_recovers(self):
+        self._archive_fault_is_recoverable('missing')
+
+    def test_real_journal_corrupt_page_never_acknowledges_and_retry_recovers(self):
+        self._archive_fault_is_recoverable('corrupt')
+
+    def test_stale_receipt_cannot_advance_sql_cursor(self):
+        from test_journal_port import Journal
+        from journal_port import ExistingJournalPort
+        journal=Journal();self.addCleanup(journal.close)
+        port=ExistingJournalPort(journal,lambda:True,enabled=True)
+        packet=fixtures.parts(2)[0];body=canonical(packet);bid=packet['group_id']+':0'
+        journal.store.put(port._name(bid),body);self.submit(packet)
+        with self.assertRaises(ValueError):TrustedHostlessConsumer(self.queue,port,lambda:True,enabled=True).consume_once(now=fixtures.WHEN)
+        self.assertEqual(self.queue.recover_cursor(fixtures.SID)['revision'],0)
+        state,saved=self.conn.execute('SELECT state,body FROM argus_ingest.batches').fetchone()
+        self.assertEqual(state,'pending');self.assertEqual(bytes(saved),body)
+
+    def test_missing_earlier_acknowledged_page_blocks_last_part_cursor_commit(self):
+        from test_journal_port import Journal
+        from journal_port import ExistingJournalPort
+        journal=Journal();self.addCleanup(journal.close)
+        port=ExistingJournalPort(journal,lambda:True,enabled=True)
+        packets=fixtures.parts(648)
+        for packet in packets:self.submit(packet)
+        consumer=TrustedHostlessConsumer(self.queue,port,lambda:True,enabled=True)
+        consumer.consume_once(now=fixtures.WHEN)
+        name='live-'+journal.head['sha']+'.json';original=journal.store.files[name]
+        consumer.consume_once(now=fixtures.WHEN)
+        self.assertEqual(self.queue.recover_cursor(fixtures.SID)['revision'],0)
+        del journal.store.files[name]
+        with self.assertRaises(ValueError):consumer.consume_once(now=fixtures.WHEN)
+        self.assertEqual(self.queue.recover_cursor(fixtures.SID)['revision'],0)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM argus_ingest.batches WHERE state='acknowledged'").fetchone()[0],2)
+        journal.store.files[name]=original
+        consumer.consume_once(now=fixtures.WHEN+timedelta(minutes=10))
+        self.assertEqual(self.queue.recover_cursor(fixtures.SID)['revision'],1)
+        self.assertEqual(journal.index.count(),648)
+
+    def test_compacted_earlier_acknowledgement_is_reverified_before_last_cursor_commit(self):
+        from test_journal_port import Journal
+        from journal_port import ExistingJournalPort
+        journal=Journal();self.addCleanup(journal.close)
+        port=ExistingJournalPort(journal,lambda:True,enabled=True)
+        for packet in fixtures.parts(648):self.submit(packet)
+        consumer=TrustedHostlessConsumer(self.queue,port,lambda:True,enabled=True)
+        consumer.consume_once(now=fixtures.WHEN)
+        journal.compact(force=True)
+        base_name=journal.base['snapshot_name'];original=journal.store.files.pop(base_name)
+        with self.assertRaises(ValueError):consumer.consume_once(now=fixtures.WHEN)
+        self.assertEqual(self.queue.recover_cursor(fixtures.SID)['revision'],0)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM argus_ingest.batches WHERE state='acknowledged'").fetchone()[0],1)
+        journal.store.files[base_name]=original
+        # The third part is due before the failed second part's retry.
+        consumer.consume_once(now=fixtures.WHEN)
+        self.assertEqual(self.queue.recover_cursor(fixtures.SID)['revision'],0)
+        consumer.consume_once(now=fixtures.WHEN+timedelta(minutes=10))
+        self.assertEqual(self.queue.recover_cursor(fixtures.SID)['revision'],1)
+        self.assertEqual(journal.index.count(),648)
+
 
 if __name__=='__main__':unittest.main()

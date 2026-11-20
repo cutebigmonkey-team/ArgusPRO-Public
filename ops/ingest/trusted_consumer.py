@@ -44,6 +44,12 @@ class TrustedHostlessConsumer:
             self.archive.import_candidate(lease['body'],batch_id=lease['run_id'])
             receipt=self.archive.readback(lease['run_id'])
             digest=verify_readback(lease['body'],receipt)
+            for sibling in self.queue.verification_siblings(lease['run_id'],lease['lease_token'],now=now):
+                if self.owner_guard() is not True:raise ValueError('writer_unavailable')
+                if hashlib.sha256(sibling['body']).hexdigest()!=sibling['sha256']:
+                    raise ValueError('archive_readback_mismatch')
+                sibling_digest=verify_readback(sibling['body'],self.archive.readback(sibling['run_id']))
+                if sibling_digest!=sibling['sha256']:raise ValueError('archive_readback_mismatch')
             if self.owner_guard() is not True:raise ValueError('writer_unavailable')
             return self.queue.acknowledge_part(lease['run_id'],lease['lease_token'],verified_body_sha=digest,now=now)
         except Exception as error:

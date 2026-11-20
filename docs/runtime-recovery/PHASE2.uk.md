@@ -211,3 +211,100 @@ reviewed DB grants, authoritative existing-cursor import, real writer ownership
 binding та crash/replay/Drive/API/frontend acceptance на authorized staging.
 Жодні production credentials, migrations, writer processes чи delivery flags
 цим patch не активуються.
+
+## P1 corrections після pre-merge review (2026-11-20)
+
+Production delivery залишається DISABLED. Цей patch не створює writer, не змінює
+production schema, source cursors або pending data.
+
+### Спільний archive record contract
+
+`storage.validate_post` — той самий validator для `validate_package` і v2
+`partition.validate_part`. Missing media / `[]` допустимі, `null`, object, string,
+number та boolean — ні. Signed wire bytes не нормалізуються і не змінюються;
+archive validator працює з копією. Unknown publication dates залишаються unknown.
+Gateway і PostgreSQL adapter викликають v2 validation до queue insert/transaction.
+Немає ZIP-building або production Drive access під час admission.
+
+### Незалежний archive read-back
+
+`ExistingJournalPort._verify_records` повторно читає checksum-verified pages,
+перевіряє chain continuity до verified compacted checkpoint, actual canonical
+identity/aliases і normalized content. SQLite index визначає expected normalization,
+але НЕ є доказом durable persistence. Receipt/body digest/HEAD equality недостатні.
+
+Це виконується перед створенням receipt, при повторному import з існуючим receipt
+та перед consumer acknowledgement. Missing/corrupt page, wrong identity, partial
+import або stale receipt блокують verification. Unacknowledged SQL body зберігається;
+retry/backoff/dead-letter працюють як раніше. Consumer також повторно перевіряє
+раніше acknowledged siblings тієї самої checkpoint group, включно з compacted
+records, перш ніж acknowledge поточний part. SQL читається по одному bounded
+body, без transaction під час remote I/O. Corruption не ремонтується шляхом
+видалення receipt, пропуску page чи вигаданого success. Після trusted repair retry
+може завершитися; dead letters потребують private reconciliation.
+
+Normal tail reads не завантажують base archive. Якщо потрібні записи compacted або
+незмінні, base перевіряється існуючим streaming checksum reader. Memory bounded до
+однієї page та одного bounded part; tail обмежено existing MAX_REPLAY_PAGES. Кількість
+remote reads залежить від tail length; live latency/throughput не виміряні.
+`IndexedFeedJournal.base_checkpoint` походить із verified bootstrap/compaction,
+не з producer request. Restart відновлює його з archive.
+
+### Fault-injection evidence
+
+Ті самі 11 нових deterministic tests виконано проти baseline modules `c882c5a`
+і patched implementation. Baseline: 8 failing test methods / 12 assertion failures
+(5 media subcases), 3 passing methods. Patch: усі 11 tests passing.
+Перевірено missing pages, corrupt bytes, valid checksum з wrong identity,
+compacted base corruption, stale receipts, partial import, failed retries,
+restart/cursor file preservation та відсутність full-base reload у tail path.
+Це offline fixtures, не production evidence.
+
+Додано 5 real PostgreSQL scenarios: missing/corrupt journal data з двома failed
+retries та recovery; stale receipt; missing earlier acknowledged page перед last
+part commit для 648 records; повторна перевірка раніше acknowledged compacted
+part перед наступним acknowledgement. Mandatory PG16 gate підвищено з 19 до 24 tests,
+без skips. Попередній green run 44716346444 стосувався baseline `c882c5a`, а не
+цього нового patch. Нові CI результати слід записати після доступного push.
+
+### Окремі activation blockers, не включені до цих P1 fixes
+
+1. **Durable producer outbox:** disposable files не гарантують recovery payloads,
+   які ще не прийняті SQL. Cross-run/attempt recovery та >24h recovery потребують
+   trusted protocol; не послаблювати OIDC run binding або expiry.
+2. **Least-privilege database roles:** reviewed ingress-only SQL API/grants,
+   окремі consumer/migration roles, retention, quotas, backups і dead-letter recovery.
+3. **Trusted gateway bootstrap:** private catalog policy, TLS/rate limits/JWKS,
+   real short-lived GitHub OIDC smoke та authenticated cursor recovery endpoint.
+4. **Existing Hostless delivery executor:** справжній session ownership guard,
+   dedicated queue connection, authoritative legacy cursor handoff, один чинний
+   writer/executor. Не створювати competing worker або активувати archive-worker.
+
+Усі activation blockers потребують review/staging validation та окремого дозволу.
+
+
+### Підсумок доступної локальної валідації P1 patch
+
+- Ingestion: 92 tests OK; 2 suite-level PG skips означають, що 24 real PostgreSQL
+  scenarios тут НЕ виконані. Mandatory gate без isolated DSN fail-closed exit 1.
+- Security: 10 passed у Python environment із PyYAML. Cached image interpreter
+  без PyYAML дав 1 import error; повтор із установленою реальною залежністю пройшов.
+- Storage: 9 tests OK, включно з 3 existing PostgreSQL-dependent skips.
+- Archive: 19 із 20 file suites green, 97 passed. `test_x_delivery.py` timeout;
+  цей самий bounded запуск timeout і на original baseline modules `c882c5a`.
+- Collectors: 40 із 50 file suites green, 287 tests включно з 17 existing skips.
+  `test_enhanced.py`: 15 tests, 1 failure + 1 error через відсутні локальні Crawlee
+  та Crawl4AI. Ще 9 file suites timeout: incremental, media, post_metrics, public,
+  rss_gateway, source_adapters, stream_results, tinyfish_fetch, x_api.
+  Для `test_incremental.py` timeout також відтворено на baseline modules.
+  Timeout не вважається PASS; ці suites потребують supported CI environment.
+- Full combined archive/collector attempts також завершилися timeout (180 s).
+  Test files не змінювалися, щоб приховати ці результати; жодних нових skips.
+- Independent Gitleaks directory scan: no leaks. Publication audit:
+  LOCAL_SCAN_CLEAR_REMOTE_REVIEW_REQUIRED, zero blocking findings.
+- Push/CI/PR update BLOCKED: GitHub integration повертає HTTP 403 на create-tree
+  та update-PR; shell git не резолвить github.com. Нових CI run links немає.
+
+Це review candidate, НЕ production-ready release. Baseline CI green не переноситься
+на нові зміни. Після відновлення GitHub write access необхідні push, Draft PR update,
+PG16 gate (24 без skips), exact image і повні hosted regression gates.

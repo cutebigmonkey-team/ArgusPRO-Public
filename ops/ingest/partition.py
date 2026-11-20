@@ -55,7 +55,12 @@ def validate_part(part, *, now=None):
               'lane':producer['lane'],'shard':producer['shard'],'created_at':part['created_at'],
               'sources':[{**source,'posts':len(posts)}],'posts':posts}
     validate_v1(envelope,now=now)
+    from storage import validate_post
     for post in posts:
+        try:
+            validate_post(post)  # The real package contract, with no media inventory.
+        except (ValueError, TypeError, OverflowError):
+            raise ValueError('archive_post_contract_invalid') from None
         if any(not isinstance(post.get(k),str) or '\0' in post[k] for k in ('canonical_key','platform','source_id','post_url','text','observed_at')):
             raise ValueError('invalid_post_fields')
         _iso(post['observed_at'])

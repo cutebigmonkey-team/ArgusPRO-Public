@@ -30,6 +30,57 @@ class ExistingJournalPort:
             raise ValueError('invalid_batch_id')
         return 'ingest-'+batch_id.replace(':','-')+'.json'
 
+    def _verify_records(self, posts):
+        try:
+            self._read_records(posts)
+        except (ValueError, KeyError, TypeError, UnicodeError) as error:
+            if isinstance(error, ValueError) and str(error)=='writer_unavailable':raise
+            raise ValueError('archive_readback_mismatch') from None
+
+    def _read_records(self, posts):
+        """Independently read current referenced archive bytes, never just receipt/index.
+
+        Bound retained rows to this part. Walk the entire active tail one page at
+        a time; only unchanged/compacted identities need a streaming base scan.
+        The index supplies expected normalization, not evidence of persistence.
+        """
+        from feed_journal import read_page, sequence, MAX_REPLAY_PAGES, CHECKPOINT
+        from publish import load_base_snapshot
+        from url_identity import identity_keys
+        self._owned()
+        head=self.journal.head;checkpoint=self.journal.base_checkpoint
+        expected={}
+        for post in posts:
+            saved=None
+            for key in identity_keys(post):
+                saved=self.journal.index.get(key)
+                if saved is not None:break
+            if (saved is None or saved.get('platform')!=post['platform'] or
+                post['canonical_key'] not in {saved['id'], *saved.get('identity_aliases',[])}):
+                raise ValueError('archive_readback_mismatch')
+            expected[saved['id']]=saved
+        found=set()
+        def compare(row):
+            sid=row.get('id')
+            if sid in expected and sid not in found:
+                if canonical(row)!=canonical(expected[sid]):
+                    raise ValueError('archive_readback_mismatch')
+                found.add(sid)
+        cursor=head;pages=0;floor=sequence(checkpoint)
+        while sequence(cursor)>floor:
+            if pages>=MAX_REPLAY_PAGES:raise ValueError('archive_readback_mismatch')
+            page=read_page(self.store,cursor)
+            if cursor['first']<=floor:raise ValueError('archive_readback_mismatch')
+            for row in page['items']:compare(row)
+            cursor=page.get('previous');pages+=1
+        if cursor!=checkpoint:raise ValueError('archive_readback_mismatch')
+        if found!=set(expected):
+            meta=load_base_snapshot(self.store,self.journal.base,item_consumer=compare)
+            if meta.get(CHECKPOINT)!=checkpoint:raise ValueError('archive_readback_mismatch')
+        if found!=set(expected):raise ValueError('archive_readback_mismatch')
+        # Fence a concurrent writer/base change during the remote reads.
+        self._owned()
+
     def import_candidate(self,body,*,batch_id):
         self._owned();raw=json.loads(body);part=decode(body,now=_iso(raw['created_at']))
         if batch_id!=f"{part['group_id']}:{part['index']}":raise ValueError('invalid_batch_id')
@@ -37,7 +88,8 @@ class ExistingJournalPort:
         previous=self.store.read_bytes(name,MAX_BYTES)
         if previous is not None:
             if previous!=body:raise ValueError('archive_readback_mismatch')
-            return  # The input receipt is written only after journal delivery.
+            self._verify_records(part['posts'])
+            return  # An existing input receipt never substitutes for archive proof.
         if not part['posts']:self.store.assert_private()
         if part['posts']:
             from storage import pack
@@ -54,7 +106,7 @@ class ExistingJournalPort:
                 # checkpoint readiness after ALL parts, never this package.
                 report={'sources':[row],'state_updates':{},'permalink_backfill':True}
                 self.journal.deliver(package,report)
-        self._owned()
+        self._verify_records(part['posts'])
         self.store.put(name,body)  # Existing fenced writer handle; immutable object.
         if self.store.read_bytes(name,MAX_BYTES)!=body:raise ValueError('archive_readback_mismatch')
 
@@ -64,4 +116,5 @@ class ExistingJournalPort:
         if body is None:raise ValueError('archive_readback_mismatch')
         raw=json.loads(body);part=decode(body,now=_iso(raw['created_at']))
         if batch_id!=f"{part['group_id']}:{part['index']}":raise ValueError('archive_readback_mismatch')
+        self._verify_records(part['posts'])
         return {'batch_id':batch_id,'sha256':hashlib.sha256(body).hexdigest(),'posts':part['posts']}

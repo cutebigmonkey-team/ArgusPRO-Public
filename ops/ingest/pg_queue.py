@@ -198,6 +198,27 @@ class PostgresQueue:
                     lease_token=NULL,lease_until=NULL WHERE run_id=%s''',
                     ('dead' if row[0]>=max_attempts else 'pending',moment+timedelta(seconds=delay),error_code,run_id))
 
+    def verification_siblings(self, run_id, token, *, now=None):
+        """Stream already-acknowledged siblings, fenced by the current lease.
+
+        A previously verified part can lose backing archive data before the last
+        part arrives. Keep no SQL transaction open across remote archive reads.
+        Payloads are immutable and read one bounded part at a time.
+        """
+        self.check_part_lease(run_id,token,now=now)
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT group_id FROM argus_ingest.batches WHERE run_id=%s",(run_id,))
+            group=cur.fetchone()[0]
+            cur.execute("SELECT run_id FROM argus_ingest.batches WHERE group_id=%s AND state='acknowledged' ORDER BY part_index",(group,))
+            identities=[row[0] for row in cur]  # At most 256 small identifiers.
+        for identity in identities:
+            self.check_part_lease(run_id,token,now=now)
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT sha256,body FROM argus_ingest.batches WHERE run_id=%s AND group_id=%s AND state='acknowledged'",(identity,group))
+                row=cur.fetchone()
+                if row is None:raise ValueError('archive_readback_required')
+            yield {'run_id':identity,'sha256':row[0],'body':bytes(row[1])}
+
     def acknowledge_part(self, run_id, token, *, verified_body_sha, now=None):
         """Trusted consumer only. Caller obtains digest from actual archive readback."""
         self._phase2_connection()

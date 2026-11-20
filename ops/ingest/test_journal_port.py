@@ -12,27 +12,39 @@ from trusted_consumer import verify_readback
 from test_phase2 import parts
 
 
-class Store:
-    def __init__(self):self.data={};self.reads=0;self.corrupt=False
-    def assert_private(self):pass
-    def put(self,name,body):self.data[name]=b'corrupt' if self.corrupt else bytes(body);return 'fixture-object'
-    def read_bytes(self,name,limit):self.reads+=1;return self.data.get(name)
+from indexed_journal import IndexedFeedJournal
+from test_publish import MemoryStore
 
 
-class Journal:
-    def __init__(self):self.index=True;self.store=Store();self.deliveries=0;self.posts={};self.reports=[]
-    def verify_head(self):pass
+class Store(MemoryStore):
+    def __init__(self):
+        super().__init__();self.data=self.files;self.reads=0;self.corrupt=False
+    def put(self,name,body,mutable=False):
+        if self.corrupt and name.startswith('ingest-'):body=b'corrupt'
+        return super().put(name,body,mutable)
+    def read_bytes(self,name,limit):
+        self.reads+=1
+        return super().read_bytes(name,limit)
+
+
+class Journal(IndexedFeedJournal):
+    def __init__(self):
+        super().__init__(Store());self.deliveries=0;self.reports=[]
+    @property
+    def posts(self):return {row['id']:row for row in self.index.rows()}
     def deliver(self,package,report):
-        from storage import validate_package
-        with tempfile.TemporaryDirectory() as root,validate_package(package,root) as (manifest,rows,media):
-            for row in rows:self.posts[row['canonical_key']]=row
+        result=super().deliver(package,report)
         self.deliveries+=1;self.reports.append(copy.deepcopy(report))
+        return result
 
 
 class ExistingJournalBridgeTests(unittest.TestCase):
+    def journal(self):
+        journal=Journal();self.addCleanup(journal.close);return journal
+
     def test_existing_writer_package_readback_and_retry_are_idempotent(self):
         packet=parts(2)[0];body=canonical(packet);bid=f"{packet['group_id']}:0"
-        journal=Journal();port=ExistingJournalPort(journal,lambda:True,enabled=True)
+        journal=self.journal();port=ExistingJournalPort(journal,lambda:True,enabled=True)
         port.import_candidate(body,batch_id=bid)
         self.assertEqual(verify_readback(body,port.readback(bid)),hashlib.sha256(body).hexdigest())
         port.import_candidate(body,batch_id=bid)
@@ -43,20 +55,20 @@ class ExistingJournalBridgeTests(unittest.TestCase):
 
     def test_200_style_put_result_does_not_replace_content_verification(self):
         packet=parts(1)[0];body=canonical(packet);bid=f"{packet['group_id']}:0"
-        journal=Journal();journal.store.corrupt=True
+        journal=self.journal();journal.store.corrupt=True
         port=ExistingJournalPort(journal,lambda:True,enabled=True)
         with self.assertRaises(ValueError):port.import_candidate(body,batch_id=bid)
 
     def test_default_disabled_and_lost_writer_never_write(self):
         packet=parts(1)[0];body=canonical(packet);bid=f"{packet['group_id']}:0"
-        for port in (ExistingJournalPort(Journal(),lambda:True),ExistingJournalPort(Journal(),lambda:False,enabled=True)):
+        for port in (ExistingJournalPort(self.journal(),lambda:True),ExistingJournalPort(self.journal(),lambda:False,enabled=True)):
             with self.assertRaises(ValueError):port.import_candidate(body,batch_id=bid)
             self.assertEqual(port.journal.deliveries,0)
             self.assertEqual(port.store.data,{})
 
     def test_zero_post_checkpoint_still_requires_durable_input_receipt(self):
         packet=parts(0)[0];body=canonical(packet);bid=f"{packet['group_id']}:0"
-        journal=Journal();port=ExistingJournalPort(journal,lambda:True,enabled=True)
+        journal=self.journal();port=ExistingJournalPort(journal,lambda:True,enabled=True)
         with self.assertRaises(ValueError):port.readback(bid)
         port.import_candidate(body,batch_id=bid)
         self.assertEqual(verify_readback(body,port.readback(bid)),hashlib.sha256(body).hexdigest())
@@ -64,7 +76,7 @@ class ExistingJournalBridgeTests(unittest.TestCase):
         self.assertEqual(len(journal.store.data),1)
 
     def test_failed_journal_commit_never_creates_an_ingestion_receipt(self):
-        journal=Journal();journal.deliver=Mock(side_effect=ValueError('fixture failure'))
+        journal=self.journal();journal.deliver=Mock(side_effect=ValueError('fixture failure'))
         packet=parts(1)[0];port=ExistingJournalPort(journal,lambda:True,enabled=True)
         with self.assertRaises(ValueError):port.import_candidate(canonical(packet),batch_id=f"{packet['group_id']}:0")
         self.assertEqual(journal.store.data,{})

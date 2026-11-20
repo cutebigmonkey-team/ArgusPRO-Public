@@ -95,6 +95,32 @@ def import_lock(root):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def validate_post(post, media_paths=()):
+    """Shared archive record contract; also used before private queue admission.
+
+    Returns a normalized shallow copy, without mutating signed producer bytes.
+    media_paths is the verified package inventory, never an untrusted URL list.
+    """
+    if not isinstance(post, dict):
+        raise ValueError('Post must be an object')
+    post = dict(post)
+    for field in ('canonical_key', 'platform', 'post_url', 'text', 'observed_at'):
+        if not isinstance(post.get(field), str) or '\0' in post[field]:
+            raise ValueError('Invalid post field: ' + field)
+    key = post['canonical_key']
+    if not key or len(key) > 2048 or not post['platform']:
+        raise ValueError('Missing canonical post identity')
+    if urllib.parse.urlsplit(post['post_url']).scheme not in ('https', 'http'):
+        raise ValueError('Post URL must be HTTP(S)')
+    post['observed_at'] = timestamp(post['observed_at'])
+    post['published_at'] = timestamp(post['published_at']) if post.get('published_at') else None
+    media = post.get('media', [])
+    if not isinstance(media, list) or any(not isinstance(sha, str) or 'media/' + sha not in media_paths for sha in media):
+        raise ValueError('Post references absent media')
+    post['media'] = sorted(set(media))
+    return post
+
+
 @contextlib.contextmanager
 def validate_package(archive, root):
     if Path(archive).stat().st_size > MAX_ARCHIVE:
@@ -167,23 +193,11 @@ def validate_package(archive, root):
         with (Path(temp) / 'posts.jsonl').open(encoding='utf-8') as source:
             for line in source:
                 post = read_json(line)
-                if not isinstance(post, dict):
-                    raise ValueError('Post must be an object')
-                for field in ('canonical_key', 'platform', 'post_url', 'text', 'observed_at'):
-                    if not isinstance(post.get(field), str) or '\0' in post[field]:
-                        raise ValueError('Invalid post field: ' + field)
+                post = validate_post(post, inventory)
                 key = post['canonical_key']
-                if not key or len(key) > 2048 or key in keys or not post['platform']:
+                if key in keys:
                     raise ValueError('Missing or duplicate canonical post identity')
                 keys.add(key)
-                if urllib.parse.urlsplit(post['post_url']).scheme not in ('https', 'http'):
-                    raise ValueError('Post URL must be HTTP(S)')
-                post['observed_at'] = timestamp(post['observed_at'])
-                post['published_at'] = timestamp(post['published_at']) if post.get('published_at') else None
-                media = post.get('media', [])
-                if not isinstance(media, list) or any(not isinstance(s, str) or 'media/' + s not in inventory for s in media):
-                    raise ValueError('Post references absent media')
-                post['media'] = sorted(set(media))
                 posts.append(post)
                 if len(posts) > 100000:
                     raise ValueError('Too many posts')
