@@ -43,3 +43,14 @@ jobs:
         run: python -m pip install -r ops/ingest/requirements.txt
       - name: Execute mandatory legacy and Phase 2 PostgreSQL integration tests
         run: python ops/ingest/run_postgres_gate.py
+      - name: Verify staging HTTP to PostgreSQL
+        run: |
+          python - <<'PYTEST'
+          import unittest
+          suite = unittest.defaultTestLoader.discover(
+              'ops/ingest', pattern='test_staging_http_postgres.py'
+          )
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if result.testsRun != 5 or result.skipped or not result.wasSuccessful():
+              raise SystemExit('staging_http_postgres_gate_failed')
+          PYTEST
