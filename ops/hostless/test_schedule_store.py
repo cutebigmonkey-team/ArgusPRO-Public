@@ -216,6 +216,38 @@ class DurableSchedule(unittest.TestCase):
         self.queue.sync({'sources':[{**source(99),'enabled':False}]},{},{'rss'})
         self.assertEqual(self.queue.claim(100000),[])
 
+    def test_interval_edit_preserves_retry_after_on_success(self):
+        catalog = {'sources': [source()]}
+        self.queue.sync(catalog, {}, {'rss'})
+        selected = self.queue.claim(1000, limit=1)[0]
+        item = payload(selected)
+        item['record']['retry_after'] = iso(1800)
+        self.queue.stage(item, 1001)
+        acknowledge(self.queue, [item])
+
+        catalog['sources'][0]['control_interval'] = 60
+        self.queue.sync(catalog, {}, {'rss'})
+        row = self.queue.execute('SELECT next_check_at,health FROM runtime_schedule WHERE id=?', ('0',)).fetchone()
+        self.assertEqual(row['next_check_at'], 1800)
+        self.assertEqual(json.loads(row['health'])['next_check_at'], iso(1800))
+        self.assertEqual(self.queue.claim(1799), [])
+        self.assertEqual(self.queue.claim(1800)[0]['id'], '0')
+
+    def test_interrupted_batch_backoff_does_not_touch_durable_results(self):
+        catalog = {'sources': [source(0), source(1), {**source(2), 'status': 'inactive'}]}
+        self.queue.sync(catalog, {}, {'rss'})
+        completed, interrupted = self.queue.claim(1000, limit=2)
+        self.queue.stage(payload(completed), 1001)
+        for selected in (completed, interrupted):
+            self.queue.quarantine(selected, 'collector_batch_interrupted', 1002)
+        self.assertEqual(len(self.queue.pending()), 1)
+        self.assertEqual(self.queue.claim(1016), [])
+        retry = self.queue.claim(1017)
+        self.assertEqual([selected['id'] for selected in retry], [interrupted['id']])
+        self.queue.quarantine(retry[0], 'collector_batch_interrupted', 1018)
+        self.assertEqual(self.queue.claim(1047), [])
+        self.assertEqual(self.queue.claim(1048)[0]['id'], interrupted['id'])
+
     def test_never_checked_sources_not_starved_by_frequent_successes(self):
         seen=set()
         for tick in range(4):

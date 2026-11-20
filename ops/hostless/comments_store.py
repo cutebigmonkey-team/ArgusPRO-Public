@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from drive_store import encoded
 from comment_schedule import delay, retry_seconds
+from source_admission import source_enabled
 
 STATUSES={'success','partial','rate_limited','auth_required','forbidden','unsupported','failed'}
 PLATFORMS=('threads','telegram','youtube','facebook','instagram','tiktok','rss','wordpress','reddit','x','vk','ok','max')
@@ -130,7 +131,7 @@ class Comments:
         return changed
 
     def sync(self,posts,sources=None):
-        now=self.clock();active=None if sources is None else {s['id'] for s in sources if s.get('enabled',True)}
+        now=self.clock();active=None if sources is None else {s['id'] for s in sources if source_enabled(s)}
         fingerprints={}
         iterator=iter(posts)
         # Bound both libpq's result buffer and serialized upsert payloads. Keep
@@ -262,12 +263,7 @@ class Comments:
                 answer=dict(rows=[],status='unsupported',reason='comment_adapter_not_available')
                 self.acknowledge(job,answer)
             else:
-                allowed={'PATH','HOME','LANG','SSL_CERT_FILE','ARGUS_YOUTUBE_API_KEY','YOUTUBE_API_KEY',
-                    'ARGUS_TELEGRAM_API_ID','ARGUS_TELEGRAM_API_HASH','ARGUS_TELEGRAM_SESSION'}
-                from comment_official import ENVIRONMENT
-                allowed.update(ENVIRONMENT)
-                if os.getenv('ARGUS_ANONYMOUS_ONLY')=='1':
-                    allowed={'PATH','HOME','LANG','SSL_CERT_FILE'}
+                allowed={'PATH','HOME','LANG','SSL_CERT_FILE'}
                 env={k:v for k,v in os.environ.items() if k in allowed}
                 try:
                     output=tempfile.TemporaryFile()

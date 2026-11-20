@@ -16,7 +16,8 @@ import sys
 OPS=Path(__file__).resolve().parents[1]
 for directory in ('collect','drive','local-storage','hostless'):
     sys.path.insert(0,str(OPS/directory))
-from monitoring_metrics import summarize
+from monitoring_metrics import summarize, percentiles
+from source_admission import source_enabled
 
 
 def audit(catalog, state, monitor, schedule, pending, now):
@@ -26,11 +27,14 @@ def audit(catalog, state, monitor, schedule, pending, now):
     for source in catalog.get('sources',[]):
         sid=source['id'];r=rows.get(sid);h=json.loads(r['health']) if r else {}
         if h.get('url')!=source['url']:h={}
+        if r and r['next_check_at']>0:
+            h['next_check_at']=datetime.fromtimestamp(r['next_check_at'],timezone.utc).isoformat()
         polling[sid]=h
         effective.append({**source,'enabled':bool(r['enabled']) if r else False})
         sources.append({'source_id':sid,'platform':source['platform'],'url':source['url'],
-            'configured_enabled':source.get('enabled',True),'runtime_enabled':bool(r['enabled']) if r else None,
+            'configured_enabled':source_enabled(source),'runtime_enabled':bool(r['enabled']) if r else None,
             'last_success_at':h.get('last_success_at'),'last_new_archived_at':h.get('last_new_post_at'),
+            'last_attempt_epoch':(r.get('last_attempt_at') or None) if r else None,
             'next_check_epoch':r['next_check_at'] if r else None,
             'last_status':h.get('collector_status'),'consecutive_errors':r['failures'] if r else None,
             'lease_until_epoch':r['lease_until'] if r else None,
@@ -46,12 +50,22 @@ def audit(catalog, state, monitor, schedule, pending, now):
     table=[]
     for platform,p in coverage['platforms'].items():
         published=receipt.get('platforms',{}).get(platform,{})
+        active=[s for s in sources if s['platform']==platform and s['runtime_enabled']]
+        late=[max(0,now.timestamp()-s['next_check_epoch']) for s in active
+              if s['next_check_epoch']>0 and s['lease_until_epoch']<=now.timestamp()
+              and not s['pending_result']]
+        intervals=[polling[s['source_id']].get('actual_interval_seconds') for s in active]
         missing=sum(s['platform']==platform and s['id'] not in rows for s in catalog['sources'])
         table.append({'platform':platform,'configured_sources':sum(s['platform']==platform for s in catalog['sources']),
-            'configured_enabled_sources':sum(s['platform']==platform and s.get('enabled',True) for s in catalog['sources']),
+            'configured_enabled_sources':sum(s['platform']==platform and source_enabled(s) for s in catalog['sources']),
             'sources_without_runtime_row':missing,
             'runtime_enabled_sources':p['active'] if not missing else None,'checked_sources_5m':p['checked_sources_5m'],
             'successful_checks_5m':p['successful_checks_5m'],'failed_checks_5m':p['failed_checks_5m'],
+            'successful_sources_5m':p['successful_sources_5m'],'failed_sources_5m':p['failed_sources_5m'],
+            'blocked_sources':p['blocked_sources'],
+            'check_interval_seconds':percentiles([v for v in intervals if isinstance(v,(int,float)) and v>0]),
+            'schedule_lag_seconds':percentiles([v for v in late if v>0]),
+            'archive_delivery_seconds_1h':p['delivery_seconds_1h'],
             'overdue':p['overdue'],'pending_history_sources':p['pending_history_sources'],
             'error_categories_1h':dict(p.get('error_categories_1h',{})),
             'new_archived_posts':{w:published.get('new_posts_'+w) if fresh else None for w in ('5m','15m','1h')},
@@ -128,7 +142,8 @@ def operational_report(catalog,schedule,pending,monitor,now,packages=None):
         # Fixed status categories only: never export upstream exception strings.
         allowed={'timeout','http_429','http_403','http_401','login_required','challenge_required',
                  'unsupported','tool_unavailable','robots_denied','gateway_rate_limited',
-                 'gateway_busy','gateway_cooldown','parsing_error','extraction_failed','collection_failed'}
+                 'gateway_busy','gateway_cooldown','parsing_error','extraction_failed','collection_failed',
+                 'collector_batch_interrupted'}
         for h in health:
             status=h.get('collector_status')
             if status in allowed:errors[status]=errors.get(status,0)+1
@@ -166,19 +181,19 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--schema',required=True)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--aggregate-only',action='store_true',help='Omit source identifiers and route inventory')
     args=parser.parse_args()
     if not re.fullmatch(r'argus_drive_[a-f0-9]{24}',args.schema):parser.error('Invalid existing schema')
     from drive_store import from_environment
     from registry import fetch_registry
-    from worker import merge_catalog
+    from runtime_catalog import load_private_catalog
+    from check_metrics import summarize as check_windows
     from site_sources import with_submissions
     import psycopg
     from psycopg import sql
     from psycopg.rows import dict_row
     store=from_environment();store.assert_private()
-    shipped=json.loads((OPS/'collect/sources.json').read_text())
-    remote=with_submissions(store,store.read_json('sources.json') or {'sources':[]})
-    catalog=merge_catalog(shipped,remote)
+    catalog=load_private_catalog(store,with_submissions)
     from cursor_journal import CursorJournal
     state=CursorJournal(store).state
     monitor=store.read_json('monitor.json') or {}
@@ -186,26 +201,35 @@ def main():
                             os.getenv('ARGUS_JSONBIN_KEY_TYPE','access'))
     # Use the existing writer's connection settings, with a fresh read-only
     # session. Never instantiate PostgresJournal or acquire its writer lock.
-    with psycopg.connect(os.environ['DATABASE_URL'],row_factory=dict_row,
+    dsn=os.getenv('ARGUS_AUDIT_DATABASE_URL') or os.environ['DATABASE_URL']
+    with psycopg.connect(dsn,row_factory=dict_row,
                          options='-c default_transaction_read_only=on -c statement_timeout=15000') as db:
-        db.execute('SET TRANSACTION READ ONLY')
+        db.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
+        db.execute(sql.SQL('SET LOCAL search_path TO {}').format(sql.Identifier(args.schema)))
         schedule=db.execute(sql.SQL('SELECT id,source,health,next_check_at,enabled,failures,lease_until,last_attempt_at FROM {}.runtime_schedule').format(sql.Identifier(args.schema))).fetchall()
         pending=db.execute(sql.SQL('SELECT source_id,bytes,created_at FROM {}.runtime_results').format(sql.Identifier(args.schema))).fetchall()
         exists=db.execute('SELECT to_regclass(%s) AS name',(args.schema+'.runtime_pending',)).fetchone()
         packages=(db.execute(sql.SQL("SELECT report::jsonb->>'pending_staged_at' AS staged_at FROM {}.runtime_pending").format(sql.Identifier(args.schema))).fetchall() if exists['name'] else None)
-    now=datetime.now(timezone.utc)
+        now=datetime.now(timezone.utc)
+        ledger=db.execute('SELECT to_regclass(%s) AS name',(args.schema+'.runtime_measurement',)).fetchone()
+        windows=check_windows(lambda query,args=():db.execute(query.replace('?','%s'),args),now.timestamp(),prune=False) if ledger['name'] else None
     result=audit(catalog,state,monitor,schedule,pending,now)
     result['operational']=operational_report(catalog,schedule,pending,monitor,now,packages)
-    from collector_preflight import route_inventory
-    result['routes']=route_inventory(catalog)
     result['deployment_sha_reported']=result['operational']['monitor_reported_commit']
+    result['check_windows']=windows
+    if args.aggregate_only:
+        result.pop('sources')
+        result.pop('operational')
+    else:
+        from collector_preflight import route_inventory
+        result['routes']=route_inventory(catalog)
     # Existing private audit included cursor payloads. Diagnostic exports must
     # not leak cursor/session tokens, credentials or token-bearing source URLs.
-    for source in result['sources']:
+    for source in result.get('sources',[]):
         for key in ('url','checkpoint','history_checkpoint','last_status'):source.pop(key,None)
     result['collector_registry']=[{'platform':r['platform'],'enabled':r['enabled'],'engine':r['engine']} for r in registry['collectors']]
     write_private_report(args.output,result)
-    print(json.dumps({'output':str(args.output),'sources':len(result['sources']),'production_modified':False}))
+    print(json.dumps({'sources':len(catalog['sources']),'aggregate_only':args.aggregate_only,'production_modified':False}))
 
 
 if __name__=='__main__':

@@ -1,0 +1,9 @@
+{
+  "sources": [
+    {"id":"hn-front","name":"Hacker News","platform":"rss","url":"https://hnrss.org/frontpage","origin":"general","control_interval":300},
+    {"id":"nasa-news","name":"NASA News","platform":"rss","url":"https://www.nasa.gov/rss/dyn/breaking_news.rss","origin":"general","control_interval":300},
+    {"id":"guardian-world","name":"The Guardian World","platform":"rss","url":"https://www.theguardian.com/world/rss","origin":"general","control_interval":300},
+    {"id":"nasa-youtube","name":"NASA YouTube","platform":"youtube","url":"https://www.youtube.com/channel/UCLA_DiR1FfKNvjuUpBHmylQ","origin":"general","control_interval":300},
+    {"id":"nasa-threads","name":"NASA Threads","platform":"threads","url":"https://www.threads.com/@nasa","origin":"general","control_interval":300}
+  ]
+}

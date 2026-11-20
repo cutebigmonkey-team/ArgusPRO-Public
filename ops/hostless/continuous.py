@@ -138,8 +138,12 @@ class Loop:
             if job.poll(self.schedule):
                 # Final atomic spool files may have appeared immediately before exit.
                 job.poll(self.schedule)
+                code=job.proc.returncode
+                if code and not self.stopping:
+                    for source in job.sources:
+                        self.schedule.quarantine(source,'collector_batch_interrupted',time.time())
                 self.schedule.release_sources(job.sources)
-                code=job.proc.returncode;job.close();del self.jobs[lane]
+                job.close();del self.jobs[lane]
                 if code:self.emit('collector_batch_interrupted',exit_code=code,lane=lane)
         if self.future is not None and self.future.done():
             delivered=False

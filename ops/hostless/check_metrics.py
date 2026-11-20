@@ -34,17 +34,19 @@ def record(sql,row,token,checked):
          int(bool(verified)),inserted,duplicate,rejected,row.get('seconds')))
 
 
-def summarize(sql,now):
+def summarize(sql,now,*,prune=True):
     since=sql('SELECT since_at FROM runtime_measurement WHERE id=1').fetchone()['since_at']
     # Bound both retention and storage. Once capped, older windows are explicitly incomplete.
     threshold=sql('SELECT checked_at FROM runtime_check_events ORDER BY checked_at DESC LIMIT 1 OFFSET 99999').fetchone()
     post_threshold=sql('SELECT archived_at FROM runtime_inserted_posts ORDER BY archived_at DESC LIMIT 1 OFFSET 99999').fetchone()
     floor=max(now-86400,threshold['checked_at'] if threshold else since,
               post_threshold['archived_at'] if post_threshold else since)
-    sql('DELETE FROM runtime_check_events WHERE checked_at<?',(floor,))
-    sql('DELETE FROM runtime_inserted_posts WHERE archived_at<?',(floor,))
-    if floor>since:
-        sql('UPDATE runtime_measurement SET since_at=? WHERE id=1',(floor,));since=floor
+    if prune:
+        sql('DELETE FROM runtime_check_events WHERE checked_at<?',(floor,))
+        sql('DELETE FROM runtime_inserted_posts WHERE archived_at<?',(floor,))
+        if floor>since:
+            sql('UPDATE runtime_measurement SET since_at=? WHERE id=1',(floor,))
+    since=floor
     result={}
     for label,seconds in WINDOWS.items():
         complete=since<=now-seconds
@@ -56,12 +58,15 @@ def summarize(sql,now):
             SUM(CASE WHEN status IN ('http_429','rate_limited','gateway_rate_limited') THEN 1 ELSE 0 END) AS rate_limits,
             SUM(CASE WHEN status IN ('robots_denied','login_required','http_401','http_403','challenge_required','unsupported') THEN 1 ELSE 0 END) AS access_restrictions,
             SUM(CASE WHEN status IN ('extraction_failed','unverified_markup','parsing_error') THEN 1 ELSE 0 END) AS parser_errors
-            FROM runtime_check_events WHERE checked_at>? AND checked_at<=? GROUP BY platform''',(now-seconds,now)).fetchall()
+            FROM runtime_check_events WHERE checked_at>? AND checked_at>=? AND checked_at<=?
+            GROUP BY platform''',(now-seconds,since,now)).fetchall()
         inserted={row['platform']:row['n'] for row in sql('''SELECT platform,COUNT(*) AS n FROM runtime_inserted_posts
-            WHERE archived_at>? AND archived_at<=? GROUP BY platform''',(now-seconds,now)).fetchall()}
+            WHERE archived_at>? AND archived_at>=? AND archived_at<=?
+            GROUP BY platform''',(now-seconds,since,now)).fetchall()}
         platforms={}
         for raw in rows:
             row=dict(raw);platform=row.pop('platform')
+            row['successful_check_rate']=row['completed']/row['attempted']
             for field in ('inserted','duplicates','rejected'):
                 measured=row.pop(field+'_measured')
                 if measured!=row['attempted']:row[field]=None

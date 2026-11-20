@@ -35,6 +35,20 @@ class IndexedJournalTests(unittest.TestCase):
         return package
     def report(self):return {'run_id':'test','updated_at':'2026-11-13T10:00:02Z','sources':[copy.deepcopy(self.record)],'incremental':True,'state_updates':{}}
 
+    def test_maintenance_on_journal_before_first_base_snapshot(self):
+        store = MemoryStore()
+        store.json('sources.json', {'sources': [self.source]})
+        feed = IndexedFeedJournal(store)
+        self.addCleanup(feed.close)
+        package = self.package(1)
+        report = self.report()
+        feed.deliver(package, report)
+        self.assertIsNone(store.read_json('catalog.json'))
+        monitor = feed.maintenance(report)
+        self.assertEqual(monitor['incremental']['archive_verified'], 1)
+        self.assertIsNone(store.read_json('analytics-catalog.json'))
+        self.assertEqual(len(load_snapshot(store)['items']), 1)
+
     def test_normal_delivery_never_loads_archive_and_preserves_old_records(self):
         before=load_snapshot(self.store)['items'][0];base=self.store.read_json('catalog.json')
         package=self.package(1);report=self.report()

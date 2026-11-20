@@ -2,6 +2,9 @@
 !.github/
 !.github/workflows/
 !.github/workflows/hosted-adapters.yml
+!.github/workflows/argus-public-collection.yml
+!.github/workflows/argus-collection-lane.yml
+!.github/workflows/public-validation.yml
 !ops/
 !ops/collect/
 !ops/collect/**
@@ -13,6 +16,8 @@
 !ops/hostless/**
 !ops/ai/
 !ops/ai/**
+!ops/ingest/
+!ops/ingest/**
 !ops/validation/
 !ops/validation/comments-ui/
 !ops/validation/comments-ui/**

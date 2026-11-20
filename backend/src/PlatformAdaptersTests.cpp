@@ -145,12 +145,16 @@ int main()
 
     const auto dsnsHtml = parseDsnsHtml(
         R"html(<article><time datetime="2026-07-24T08:00:00Z"></time><img src="/images/a.jpg"><a href="/news/ostanni-novini/test-item?utm_source=x"><strong>ДСНС</strong> повідомляє</a></article>)html",
-        "https://fixture.invalid/source/43", 10);
+        "https://fixture.dsns.gov.ua/", 10);
     expect(dsnsHtml.size() == 1, "dsns Joomla HTML item parsed");
-    expect(dsnsHtml[0].canonicalKey.rfind("dsns-http:https://fixture.invalid/source/43news/", 0) == 0,
-           "dsns stable canonical URL key");
-    expect(dsnsHtml[0].postUrl.find('?') == std::string::npos, "dsns tracking query removed");
-    expect(dsnsHtml[0].publishedAt == "2026-07-24T08:00:00Z", "dsns HTML timestamp");
+    if (dsnsHtml.size() == 1)
+    {
+        expect(dsnsHtml.front().canonicalKey ==
+                   "dsns-http:https://fixture.dsns.gov.ua/news/ostanni-novini/test-item",
+               "dsns stable canonical URL key");
+        expect(dsnsHtml.front().postUrl.find('?') == std::string::npos, "dsns tracking query removed");
+        expect(dsnsHtml.front().publishedAt == "2026-07-24T08:00:00Z", "dsns HTML timestamp");
+    }
 
     if (failures == 0) std::cout << "platform adapter tests passed\n";
     return failures == 0 ? 0 : 1;

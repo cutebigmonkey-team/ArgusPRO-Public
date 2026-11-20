@@ -295,7 +295,7 @@ def social_public(post,cursor):
 
 
 from comment_public import remaining_public
-from comment_official import facebook,instagram,tiktok,threads,x,vk,ok
+from comment_official import ENVIRONMENT,facebook,instagram,tiktok,threads,x,vk,ok
 ADAPTERS.update(facebook=facebook,instagram=instagram,tiktok=tiktok,threads=threads,x=x,vk=vk,ok=ok,max=remaining_public)
 
 
@@ -345,6 +345,9 @@ def collect(post,cursor=None):
 
 
 if __name__=='__main__':
+    for name in (*ENVIRONMENT,'ARGUS_YOUTUBE_API_KEY','YOUTUBE_API_KEY',
+                 'ARGUS_TELEGRAM_API_ID','ARGUS_TELEGRAM_API_HASH','ARGUS_TELEGRAM_SESSION'):
+        os.environ.pop(name,None)
     # Linux cloud deadline; supervisor additionally reaps abandoned children.
     if hasattr(__import__('signal'),'SIGALRM'):
         import signal

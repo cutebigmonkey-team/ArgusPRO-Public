@@ -155,6 +155,8 @@ class FeedJournal:
 
     def publish_analytics(self):
         self.verify_head()
+        if self.base is None:
+            return False
         return self.analytics.publish(self.store,self.base,self.head,self.snapshot.get('updated_at'))
 
     def deliver(self,package,report):

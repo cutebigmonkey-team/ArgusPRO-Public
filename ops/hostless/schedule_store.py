@@ -11,7 +11,8 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
-from source_health import update, SKIPPED
+from source_health import update, SKIPPED, LIMITED, TRANSIENT
+from source_admission import source_enabled
 
 MAX_RESULT = 8 * 1024**2
 MAX_SPOOL = 48 * 1024**2
@@ -107,7 +108,7 @@ class ScheduleStore:
                 for source in batch:
                     old=existing.get(source['id']);current=health.get(source['id'],{})
                     if current.get('url')!=source['url']:current={}
-                    active=int(source.get('enabled',True) and source['platform'] in enabled)
+                    active=int(source_enabled(source) and source['platform'] in enabled)
                     if old and old['failures']>source.get('control_retry_limit',1000000):active=0
                     priority=max(-10,min(10,int(source.get('priority',0))))
                     if old is None:
@@ -115,14 +116,24 @@ class ScheduleStore:
                         continue
                     previous=json.loads(old['source']);changed=previous['url']!=source['url']
                     updates.append((json.dumps(source),active,priority,source['id']))
-                    if not old['failures'] and not old['lease_token'] and previous.get('control_interval')!=source.get('control_interval'):
-                        intervals.append((old['last_completed_at']+source.get('control_interval',300),source['id']))
+                    if (not changed and not old['failures'] and not old['lease_token']
+                            and source['id'] not in pending
+                            and previous.get('control_interval')!=source.get('control_interval')):
+                        stored_health=json.loads(old['health'])
+                        deadline=max(stamp(stored_health.get('retry_after')),
+                                     stamp(stored_health.get('host_cooldown_until')))
+                        due=max(old['last_completed_at']+source.get('control_interval',300),deadline)
+                        # Old checkpoints did not store Retry-After separately.
+                        if 'retry_after' not in stored_health:
+                            due=max(due,old['next_check_at'])
+                        stored_health['next_check_at']=iso(due)
+                        intervals.append((due,json.dumps(stored_health),source['id']))
                     if source['id'] not in pending and not old['lease_token'] and (changed or stamp(current.get('last_checked_at'))>old['last_completed_at']):
                         restored.append((json.dumps(current),stamp(current.get('next_check_at')),stamp(current.get('last_checked_at')),stamp(current.get('last_checked_at')),source['id']))
                 operations=[
                     ('INSERT INTO runtime_schedule(id,source,health,next_check_at,enabled,last_completed_at,priority) VALUES(?,?,?,?,?,?,?)',inserts),
                     ('UPDATE runtime_schedule SET source=?,enabled=?,priority=? WHERE id=?',updates),
-                    ('UPDATE runtime_schedule SET next_check_at=? WHERE id=?',intervals),
+                    ('UPDATE runtime_schedule SET next_check_at=?,health=? WHERE id=?',intervals),
                     ('UPDATE runtime_schedule SET health=?,next_check_at=?,last_completed_at=?,last_attempt_at=? WHERE id=?',restored)]
                 cursor=self.db.cursor()
                 try:
@@ -294,9 +305,8 @@ class ScheduleStore:
         # Auth/robots failures remain source-specific and never disable a platform.
         key=request_group(source);status=record['status']
         old=self.execute('SELECT * FROM runtime_circuits WHERE group_key=?',(key,)).fetchone()
-        transient=status in {'timeout','network_error','dns_error','connection_reset','http_502','http_503','http_504'}
-        limited=status in {'http_429','rate_limited','gateway_rate_limited'}
-        if not transient and not limited:
+        limited=status in LIMITED
+        if status not in TRANSIENT and not limited:
             if status in {'ok','no_new_posts','no_public_posts'} and old:
                 # A success cannot shorten an explicitly active Retry-After.
                 self.execute('UPDATE runtime_circuits SET failures=0 WHERE group_key=?',(key,))
@@ -321,20 +331,33 @@ class ScheduleStore:
         # Retrying from the last archive checkpoint is safe after partial loss.
         with self.transaction():
             from source_health import update
-            old=self.execute('SELECT health FROM runtime_schedule WHERE id=?',(source['id'],)).fetchone()
-            previous=json.loads(old['health']) if old else {}
+            old=self.execute('''SELECT health,source,last_reserved_at FROM runtime_schedule
+                WHERE id=? AND lease_token=? AND id NOT IN (SELECT source_id FROM runtime_results)''',
+                (source['id'],source['_lease_token'])).fetchone()
+            if old is None or json.loads(old['source'])['url']!=source['url']:
+                return
+            previous=json.loads(old['health'])
             rejected={'source_id':source['id'],'platform':source['platform'],'url':source['url'],
                 'status':category,'checked_at':iso(now),'new_keys':[],'canonical_keys':[],
                 'attempts':[{'tool':'result_transport','status':category,'posts':0}],'seconds':0,
                 'remaining_ranges':previous.get('remaining_ranges')}
+            if category=='collector_batch_interrupted':
+                rejected['started_at']=iso(old['last_reserved_at'])
             health=update(previous,rejected,target_seconds=300)
             next_check=max(now+3600,stamp(health.get('next_check_at')))
+            if category=='collector_batch_interrupted':
+                failures=health.get('consecutive_errors',1)
+                next_check=now+min(300,15*2**min(max(0,failures-1),5))
             health['next_check_at']=iso(next_check)
             self.execute('''INSERT INTO runtime_dead_letters VALUES(?,?,1,?) ON CONFLICT(source_id)
                 DO UPDATE SET category=excluded.category, failures=runtime_dead_letters.failures+1,
                 last_failed_at=excluded.last_failed_at''',(source['id'],category,now))
-            self.execute('''UPDATE runtime_schedule SET lease_token=NULL,lease_until=0,next_check_at=?,failures=failures+1,health=?
-                WHERE id=? AND lease_token=?''',(next_check,json.dumps(health),source['id'],source['_lease_token']))
+            self.execute('''UPDATE runtime_schedule SET lease_token=NULL,lease_until=0,next_check_at=?,failures=failures+1,health=?,
+                last_attempt_at=CASE WHEN ? > last_attempt_at THEN ? ELSE last_attempt_at END
+                WHERE id=? AND lease_token=?''',(next_check,json.dumps(health),old['last_reserved_at'],
+                old['last_reserved_at'],source['id'],source['_lease_token']))
+            from check_metrics import record as record_check
+            record_check(self.execute,rejected,source['_lease_token'],now)
 
     def spool_bytes(self):
         return self.execute('SELECT COALESCE(SUM(bytes),0) AS n FROM runtime_results').fetchone()['n']

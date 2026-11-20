@@ -10,13 +10,14 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'local-storage'))
 from storage import validate_package,pack
 from run import PLATFORMS,now
 from record_quality import merge_observations
+from source_admission import source_enabled
 from source_health import SKIPPED, platform_status
 
 def merge(directory,catalog_path,output,shards,registry_path=None):
     root=Path(directory);catalog=json.loads(Path(catalog_path).read_text(encoding='utf-8'))
     if len({s['id'] for s in catalog['sources']})!=len(catalog['sources']):
         raise ValueError('Repeated source ID in catalog')
-    expected={s['id'] for s in catalog['sources'] if s.get('enabled',s.get('status','active')=='active')}
+    expected={s['id'] for s in catalog['sources'] if source_enabled(s)}
     digest=hashlib.sha256(Path(catalog_path).read_bytes()).hexdigest()
     seen=set();posts={};results=[];reports=[];state_updates={}
     mismatched_shards=[]

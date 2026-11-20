@@ -1,9 +1,38 @@
 import json
+import sqlite3
 import unittest
 from datetime import datetime,timezone,timedelta
 from audit_collection import audit
+from check_metrics import initialize, record, summarize
 
 class AuditTests(unittest.TestCase):
+    def test_read_only_check_windows_preserve_the_ledger(self):
+        db=sqlite3.connect(':memory:')
+        self.addCleanup(db.close)
+        db.row_factory=sqlite3.Row
+        initialize(db.execute,1000)
+        for token,status in [('first','ok'),('second','timeout')]:
+            record(db.execute,{'source_id':'a','platform':'rss','status':status},token,1200)
+        db.commit()
+        db.execute('PRAGMA query_only=ON')
+        window=summarize(db.execute,1300,prune=False)['5m']
+        self.assertTrue(window['complete_window'])
+        observed=window['platforms']['rss']['observed']
+        self.assertEqual((observed['attempted'],observed['successful_check_rate']),(2,.5))
+        self.assertEqual(db.execute('SELECT COUNT(*) FROM runtime_check_events').fetchone()[0],2)
+
+    def test_sql_schedule_deadline_takes_precedence_over_archived_health(self):
+        now=datetime(2026,11,11,tzinfo=timezone.utc)
+        source={'id':'a','url':'https://example.org/rss','platform':'rss'}
+        health={'url':source['url'],'next_check_at':(now-timedelta(seconds=60)).isoformat(),
+                'actual_interval_seconds':298}
+        row={'id':'a','health':json.dumps(health),'enabled':1,'failures':0,
+             'lease_until':0,'next_check_at':now.timestamp()+60}
+        platform=audit({'sources':[source]}, {},{},[row],[],now)['platforms'][0]
+        self.assertEqual(platform['overdue'],0)
+        self.assertEqual(platform['check_interval_seconds']['p95'],298)
+        self.assertEqual(platform['schedule_lag_seconds']['samples'],0)
+
     def test_stale_archive_is_unknown_while_database_health_is_current(self):
         now=datetime(2026,11,11,tzinfo=timezone.utc)
         source={'id':'a','url':'https://example.org/rss','platform':'rss'}

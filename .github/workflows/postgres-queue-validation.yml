@@ -12,20 +12,6 @@ jobs:
     if: github.event.repository.private == false
     runs-on: ubuntu-22.04
     timeout-minutes: 8
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: argus_ingest_ci
-          POSTGRES_USER: argus_ci
-          POSTGRES_PASSWORD: local-ci-only-not-production
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U argus_ci -d argus_ingest_ci"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     env:
       PYTHONPATH: ops/ingest:ops/local-storage:ops/drive:ops/collect
       ARGUS_PG_INTEGRATION_DSN: postgresql://argus_ci@127.0.0.1:5432/argus_ingest_ci
@@ -41,6 +27,21 @@ jobs:
           python-version: '3.12'
       - name: Install PostgreSQL driver
         run: python -m pip install -r ops/ingest/requirements.txt
+      - name: Start disposable PostgreSQL on loopback
+        run: |
+          # The staging gateway verifies inet_server_addr(). A bridged service
+          # reports its container IP even when the runner connects to localhost.
+          docker run -d --rm --name argus-ingest-ci --network host \
+            -e POSTGRES_DB=argus_ingest_ci -e POSTGRES_USER=argus_ci \
+            -e POSTGRES_PASSWORD="$PGPASSWORD" postgres:16 \
+            -c listen_addresses=127.0.0.1
+          for attempt in {1..30}; do
+            if docker exec argus-ingest-ci pg_isready -h 127.0.0.1 -U argus_ci -d argus_ingest_ci; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
       - name: Execute mandatory legacy and Phase 2 PostgreSQL integration tests
         run: python ops/ingest/run_postgres_gate.py
       - name: Verify staging HTTP to PostgreSQL
@@ -54,3 +55,6 @@ jobs:
           if result.testsRun != 5 or result.skipped or not result.wasSuccessful():
               raise SystemExit('staging_http_postgres_gate_failed')
           PYTEST
+      - name: Stop disposable PostgreSQL
+        if: always()
+        run: docker stop argus-ingest-ci || true

@@ -4,6 +4,10 @@ import time
 from contextlib import asynccontextmanager
 
 
+def source_enabled(source):
+    return bool(source.get('enabled', source.get('status', 'active') == 'active'))
+
+
 class Admission:
     def __init__(self,pacing,parallelism=None):
         self.pacing=pacing;self.parallelism=parallelism or {}

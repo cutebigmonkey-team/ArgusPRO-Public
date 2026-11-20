@@ -24,7 +24,7 @@ int main()
         {"vk", "https://vk.com/wall-99_7?from=feed", "vk:-99:7"},
         {"ok", "https://ok.ru/group/1/topic/987654", "ok:987654"},
         {"max", "https://web.max.ru/c/-12345/AZ2qkK1xdkU?ref=x", "max:-12345:AZ2qkK1xdkU"},
-        {"dsns-browser", "https://fixture.invalid/source/43news/item?x=1", "dsns-browser:https://fixture.invalid/source/43news/item"},
+        {"dsns-browser", "https://fixture.dsns.gov.ua/news/item?x=1", "dsns-browser:https://fixture.dsns.gov.ua/news/item"},
     };
     for (const auto &test : cases)
     {

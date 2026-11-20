@@ -178,6 +178,8 @@ def isolate_platform_tokens():
 
 
 def platform_token(name):
+    if os.getenv('ARGUS_ANONYMOUS_ONLY') == '1':
+        return ''
     return _platform_tokens.get().get(name, os.environ.get(name,''))
 
 

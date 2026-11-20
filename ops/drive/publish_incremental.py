@@ -8,7 +8,7 @@ import tempfile
 
 from collection_state import commit
 from drive_store import from_environment, encoded
-from publish import publish, load_snapshot, confirm_collection
+from publish import publish, load_snapshot, confirm_collection, verified_source_rows
 from storage import validate_package
 
 PENDING = 'incremental-pending.json'
@@ -37,7 +37,7 @@ def write_monitor(store,report,snapshot,*,verified_state=None,catalog=None):
     first=next(iter(report.get('started_sources',[])),None)
     monitor[lane]={'run_id':report['run_id'],'checked_at':report['updated_at'],'first_started':first,
         'first_news':report.get('news_signals',{}).get(first),'selected':len(report['sources']),
-        'new_to_archive':report['new_to_archive'],'archive_verified':sum(row.get('archived_posts',0) for row in report['sources'])}
+        'new_to_archive':report['new_to_archive'],'archive_verified':verified_source_rows(report['sources'])}
     if catalog is None:catalog=store.read_json('sources.json') or {}
     state=verified_state if verified_state is not None else store.read_json('collection-cursors.json') or {}
     when=datetime.now(timezone.utc)

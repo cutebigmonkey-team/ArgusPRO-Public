@@ -116,6 +116,11 @@ class ReliabilityTests(unittest.TestCase):
         when='2026-11-01T00:00:00Z'
         row={'url':'https://news.test','platform':'rss','checked_at':when,'new_keys':[],
              'status':'http_503','seconds':1,'attempts':[]}
+        first=update({},row)
+        self.assertLessEqual(instant(first['next_check_at'])-instant(when),dt.timedelta(seconds=66))
+        again=instant(first['next_check_at'])
+        second=update(first,{**row,'checked_at':again.isoformat()})
+        self.assertGreaterEqual(instant(second['next_check_at'])-again,dt.timedelta(minutes=2))
         old={'url':row['url'],'consecutive_errors':12}
         deadline=instant(update(old,row)['next_check_at'])
         self.assertLessEqual(deadline-instant(when),dt.timedelta(minutes=66))

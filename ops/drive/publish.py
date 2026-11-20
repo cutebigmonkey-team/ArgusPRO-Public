@@ -245,6 +245,12 @@ def monitor(store, results, state):
         'state':state,'stages':stages,'run_id':os.environ.get('GITHUB_RUN_ID',''),
         'repository':'cutebigmonkey-team/ArgusPRO'},mutable=True)
 
+def verified_source_rows(sources):
+    counts = [(row.get('delivery') or {}).get('saved_ids', row.get('archived_posts'))
+              for row in sources]
+    return sum(counts) if all(type(count) is int for count in counts) else None
+
+
 def confirm_collection(snapshot, result, report):
     if result['new_keys'] is None:
         raise ValueError('archive_delta_unavailable')

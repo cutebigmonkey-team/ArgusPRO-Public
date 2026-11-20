@@ -16,11 +16,12 @@ import subprocess
 import sys
 import tempfile
 from collection_diagnostics import public_status, public_tool, TYPES, PHASES, MODULES, IMPORT_MODULES
+from source_admission import source_enabled
 
 LANES = {
     'fast': frozenset(('telegram', 'rss', 'youtube', 'threads', 'tiktok',
                        'rutube', 'mailru', 'reddit', 'gdelt')),
-    'extended': frozenset(('facebook', 'instagram', 'vk', 'ok', 'x')),
+    'extended': frozenset(('facebook', 'instagram', 'vk', 'ok', 'x', 'max', 'whatsapp')),
 }
 
 
@@ -36,7 +37,7 @@ def assignment(sources, lane, shard, shards, turn=0):
         seen.add(sid)
         if source.get('platform') not in set().union(*LANES.values()):
             raise ValueError('unsupported_platform')
-        if source.get('enabled', True) is not True:
+        if not source_enabled(source):
             continue
         if source['platform'] in LANES[lane] and int(hashlib.sha256(sid.encode()).hexdigest(), 16) % shards == shard:
             selected.append(source)
@@ -82,7 +83,7 @@ def coverage(selected, report, posts, failed=False, now=None):
             'frontend_visible_posts': 'NOT_MEASURABLE',
             'sources_with_posts': 0, 'dated_sources': 0,
             'completed_checks': 0, 'failed_checks': 0, 'partial_checks': 0,
-            'restricted_checks': 0, 'deferred_checks': 0, 'error_diagnostics': {},
+            'restricted_checks': 0, 'unsupported_checks': 0, 'deferred_checks': 0, 'error_diagnostics': {},
             'sources_fresh_5m': 0, 'sources_fresh_15m': 0, 'sources_fresh_60m': 0,
             'latest_source_age_s_median': None, 'reader_attempts': {},
             '_source_ages': [],
@@ -97,6 +98,8 @@ def coverage(selected, report, posts, failed=False, now=None):
             stats['partial_checks'] += 1
         elif status in ('deferred_budget', 'deferred_rate_limit', 'not_due', 'disabled_by_registry'):
             stats['deferred_checks'] += 1
+        elif status == 'unsupported':
+            stats['unsupported_checks'] += 1
         elif status.startswith('robots_') or status in ('login_required', 'challenge_required', 'http_401', 'http_403'):
             stats['restricted_checks'] += 1
         else:
@@ -160,8 +163,9 @@ def coverage(selected, report, posts, failed=False, now=None):
         ages = stats.pop('_source_ages')
         stats['latest_source_age_s_median'] = median(ages) if ages else None
         stats['collection_health'] = (
+            'UNSUPPORTED' if stats['unsupported_checks'] == stats['assigned'] else
             'BROKEN' if stats['failed_checks'] == stats['assigned'] else
-            'DEGRADED' if stats['failed_checks'] or stats['partial_checks'] or stats['deferred_checks'] else
+            'DEGRADED' if stats['failed_checks'] or stats['partial_checks'] or stats['deferred_checks'] or stats['unsupported_checks'] else
             'ACCESS_RESTRICTED' if stats['restricted_checks'] else
             'CONTENT_OBSERVED' if stats['extracted_records'] else 'NO_CONTENT_OBSERVED')
     return {'mode': 'pilot_read_only', 'checkpoint_advanced': False,
@@ -200,7 +204,8 @@ def execute(args, runner=subprocess.run):
             # Collector stdout is not a trusted public log interface.
             with (Path(scratch) / 'collector.log').open('w') as log:
                 try:
-                    code = runner(command, stdout=log, stderr=log, timeout=240, check=False).returncode
+                    env = {**os.environ, 'ARGUS_ANONYMOUS_ONLY': '1'}
+                    code = runner(command, stdout=log, stderr=log, env=env, timeout=240, check=False).returncode
                 except subprocess.TimeoutExpired:
                     code = 124
                 except OSError:
@@ -221,11 +226,11 @@ def execute(args, runner=subprocess.run):
         for source in catalog['sources']:
             stats = catalog_platforms.setdefault(source['platform'], {'configured': 0, 'enabled': 0})
             stats['configured'] += 1
-            stats['enabled'] += source.get('enabled', True) is True
+            stats['enabled'] += source_enabled(source)
         result.update(execution_status='COMPLETED' if code == 0 else 'FAILED',
                       catalog_platforms=catalog_platforms,
                       lane=args.lane, shard=args.shard_index, configured=len(catalog['sources']),
-                      enabled=sum(s.get('enabled', True) is True for s in catalog['sources']))
+                      enabled=sum(source_enabled(s) for s in catalog['sources']))
         (output / 'coverage.json').write_text(json.dumps(result, indent=2))
         print(json.dumps(result))  # Aggregate counts and fixed status codes only.
         if any(v['collection_health'] in ('BROKEN', 'DEGRADED') for v in result['platforms'].values()):

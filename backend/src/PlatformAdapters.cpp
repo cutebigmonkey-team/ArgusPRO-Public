@@ -106,10 +106,9 @@ bool matchesHost(const std::string &host, const std::vector<std::string> &allowe
     return false;
 }
 
-Download performRequest(const std::string &url, const std::vector<std::string> &allowed,
-                        const HttpOptions &options, const std::vector<std::string> &headers,
-                        const std::string &userAgent, const std::string &postBody = {},
-                        const std::string &userPassword = {})
+Download get(const std::string &url, const std::vector<std::string> &allowed,
+             const HttpOptions &options, const std::vector<std::string> &headers = {},
+             const std::string &userAgent = "ArgusPRO-ShadowCollector/1.0 (+https://argusnews.online)")
 {
     if (!matchesHost(hostOf(url), allowed)) throw std::runtime_error("hostname_not_allowed");
     CURL *curl = curl_easy_init();
@@ -130,17 +129,6 @@ Download performRequest(const std::string &url, const std::vector<std::string> &
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, abortWhenStopping);
-    if (!postBody.empty())
-    {
-        curl_easy_setopt(curl, CURLOPT_POST, 1L);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(postBody.size()));
-    }
-    if (!userPassword.empty())
-    {
-        curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-        curl_easy_setopt(curl, CURLOPT_USERPWD, userPassword.c_str());
-    }
     curl_slist *list = nullptr;
     for (const auto &header : headers) list = curl_slist_append(list, header.c_str());
     if (list) curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
@@ -162,23 +150,6 @@ Download performRequest(const std::string &url, const std::vector<std::string> &
     if (result.status == 429) throw std::runtime_error("rate_limited");
     if (result.status < 200 || result.status >= 300) throw std::runtime_error("http_status_failed");
     return result;
-}
-
-Download get(const std::string &url, const std::vector<std::string> &allowed,
-             const HttpOptions &options, const std::vector<std::string> &headers = {},
-             const std::string &userAgent = "ArgusPRO-ShadowCollector/1.0 (+https://argusnews.online)")
-{
-    return performRequest(url, allowed, options, headers, userAgent);
-}
-
-Download postForm(const std::string &url, const std::vector<std::string> &allowed,
-                  const HttpOptions &options, const std::string &body,
-                  const std::string &userPassword, const std::string &userAgent)
-{
-    return performRequest(url, allowed, options,
-                          {"Accept: application/json",
-                           "Content-Type: application/x-www-form-urlencoded"},
-                          userAgent, body, userPassword);
 }
 
 std::string xml(const std::string &block, const std::string &tag)
@@ -214,17 +185,6 @@ Json::Value parseJson(const std::string &text)
     if (!reader->parse(text.data(), text.data() + text.size(), &root, &errors))
         throw std::runtime_error("invalid_json");
     return root;
-}
-
-std::string urlEncode(const std::string &value)
-{
-    CURL *curl = curl_easy_init();
-    if (!curl) return {};
-    char *encoded = curl_easy_escape(curl, value.c_str(), static_cast<int>(value.size()));
-    const std::string result = encoded ? encoded : "";
-    curl_free(encoded);
-    curl_easy_cleanup(curl);
-    return result;
 }
 
 std::string isoTimestamp(std::time_t raw)
@@ -317,30 +277,6 @@ std::string redditCommunity(const std::string &url)
 {
     if (const auto value = capture(url, std::regex(R"(reddit\.com/r/([A-Za-z0-9_]+))", std::regex::icase)))
         return *value;
-    return {};
-}
-
-std::string redditAccessToken(const std::string &clientId, const std::string &clientSecret,
-                              const HttpOptions &options)
-{
-    static std::string cachedToken;
-    static std::time_t expiresAt{0};
-    const std::time_t now = std::time(nullptr);
-    if (!cachedToken.empty() && expiresAt > now + 60) return cachedToken;
-    const auto response = postForm(
-        "https://www.reddit.com/api/v1/access_token", {"www.reddit.com"}, options,
-        "grant_type=client_credentials", clientId + ":" + clientSecret,
-        "web:argus-dashboard:1.0 (by /u/argus_dashboard_bot)");
-    const Json::Value token = parseJson(response.body);
-    cachedToken = token.get("access_token", "").asString();
-    if (cachedToken.empty()) throw std::runtime_error("auth_required");
-    expiresAt = now + std::max(60, token.get("expires_in", 3600).asInt() - 60);
-    return cachedToken;
-}
-
-std::string vkSlug(const std::string &url)
-{
-    if (const auto value = capture(url, std::regex(R"(vk\.com/([^/?#]+))", std::regex::icase))) return *value;
     return {};
 }
 
@@ -744,84 +680,17 @@ Result collect(const std::string &platform, const std::string &sourceUrl,
         {
             const std::string community = redditCommunity(sourceUrl);
             if (community.empty()) return {{}, "invalid_source_url"};
-            const std::string clientId = argus::pipeline::envString("REDDIT_CLIENT_ID");
-            const std::string clientSecret = argus::pipeline::envString("REDDIT_CLIENT_SECRET");
-            const std::string cookie = argus::pipeline::envString("REDDIT_COOKIE");
-            Download response;
-            bool fetched = false;
-            if (!clientId.empty() && !clientSecret.empty())
-            {
-                try
-                {
-                    const std::string token = redditAccessToken(clientId, clientSecret, options);
-                    const std::string url = "https://oauth.reddit.com/r/" + community +
-                        "/new?raw_json=1&limit=" + std::to_string(limit);
-                    response = get(url, {"oauth.reddit.com"}, options,
-                                   {"Accept: application/json", "Authorization: Bearer " + token},
-                                   "web:argus-dashboard:1.0 (by /u/argus_dashboard_bot)");
-                    fetched = true;
-                }
-                catch (const std::runtime_error &error)
-                {
-                    if (std::string(error.what()) == "rate_limited") throw;
-                }
-            }
-            if (!fetched && !cookie.empty())
-            {
-                try
-                {
-                    const std::string url = "https://www.reddit.com/r/" + community +
-                        "/new.json?raw_json=1&limit=" + std::to_string(limit);
-                    response = get(url, {"www.reddit.com"}, options,
-                                   {"Accept: application/json", "Cookie: " + cookie},
-                                   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                                   "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36");
-                    fetched = true;
-                }
-                catch (const std::runtime_error &error)
-                {
-                    if (std::string(error.what()) == "rate_limited") throw;
-                }
-            }
-            if (fetched)
-            {
-                auto items = parseRedditJson(response.body, limit);
-                const std::string error = items.empty() ? "empty_feed" : "";
-                return {std::move(items), error};
-            }
-
-            // Reddit exposes a public Atom feed for each community. Keep
-            // OAuth/cookie as the preferred contracts above, but use the
-            // bounded feed when credentials are absent or rejected.
             const std::string url = "https://www.reddit.com/r/" + community +
                 "/new/.rss?limit=" + std::to_string(
                     std::min<std::size_t>(std::max<std::size_t>(limit, 1), 100));
-            response = get(url, {"www.reddit.com"}, options,
-                           {"Accept: application/atom+xml, application/xml;q=0.9"},
-                           "ArgusPRO/1.0 (+https://argusnews.online)");
+            const auto response = get(url, {"www.reddit.com"}, options,
+                                      {"Accept: application/atom+xml, application/xml;q=0.9"},
+                                      "ArgusPRO/1.0 (+https://argusnews.online)");
             auto items = parseRedditAtom(response.body, limit);
             const std::string error = items.empty() ? "empty_feed" : "";
             return {std::move(items), error};
         }
-        if (platform == "vk")
-        {
-            const std::string token = argus::pipeline::envString("VK_TOKEN");
-            if (token.empty()) return {{}, "credentials_missing:VK_TOKEN"};
-            const std::string slug = vkSlug(sourceUrl);
-            if (slug.empty()) return {{}, "invalid_source_url"};
-            const auto resolved = get("https://api.vk.com/method/utils.resolveScreenName?v=5.199&screen_name=" + urlEncode(slug) + "&access_token=" + urlEncode(token),
-                                      {"api.vk.com"}, options);
-            const Json::Value identity = parseJson(resolved.body)["response"];
-            if (!identity.isObject() || !identity["object_id"].isNumeric()) return {{}, "vk_source_unresolved"};
-            long long owner = identity["object_id"].asInt64();
-            const std::string type = identity.get("type", "").asString();
-            if (type == "group" || type == "page") owner = -owner;
-            const auto response = get("https://api.vk.com/method/wall.get?v=5.199&filter=owner&count=" + std::to_string(limit) + "&owner_id=" + std::to_string(owner) + "&access_token=" + urlEncode(token),
-                                      {"api.vk.com"}, options);
-            auto items = parseVkJson(response.body, limit);
-            const std::string error = items.empty() ? "empty_feed" : "";
-            return {std::move(items), error};
-        }
+        if (platform == "vk") return {{}, "unsupported_contract"};
         if (platform == "gdelt")
         {
             if (!matchesHost(hostOf(sourceUrl), {"api.gdeltproject.org"})) return {{}, "invalid_source_url"};

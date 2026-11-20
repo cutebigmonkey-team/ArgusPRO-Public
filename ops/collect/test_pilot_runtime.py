@@ -110,6 +110,7 @@ class PilotTests(unittest.TestCase):
             cursor.write_text('unchanged')
             def runner(command, **kwargs):
                 self.assertIn('--incremental', command)
+                self.assertEqual(kwargs['env']['ARGUS_ANONYMOUS_ONLY'], '1')
                 self.assertIn('--adaptive', command)
                 self.assertNotIn('--cursors', command)
                 output = Path(command[command.index('--output') + 1])

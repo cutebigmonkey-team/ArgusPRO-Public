@@ -137,6 +137,7 @@ jobs:
           import json, os, re
           from pathlib import Path
           from urllib.parse import urlsplit, parse_qsl
+          from pilot_runtime import LANES
           from run import HOSTS
           raw = os.environ.get('ARGUS_PUBLIC_COLLECT_SOURCES_JSON', '')
           if not raw:
@@ -150,7 +151,7 @@ jobs:
           sources = catalog['sources']
           if not 1 <= len(sources) <= 250:
               raise SystemExit('Expected 1-250 approved public sources; larger catalogs need another transport')
-          allowed = {'telegram','rss','mailru','youtube','facebook','instagram','threads','x','vk','ok','tiktok','reddit','rutube','gdelt'}
+          allowed = set().union(*LANES.values())
           seen = set()
           for row in sources:
               if not isinstance(row, dict) or set(row) - {'id','name','platform','url','enabled','origin','region'}:
@@ -158,7 +159,7 @@ jobs:
               if any(not isinstance(row.get(key), str) for key in ('id','platform','url')):
                   raise SystemExit('Missing required source strings')
               if (not re.fullmatch(r'[A-Za-z0-9_-]{3,100}', row['id']) or row['id'] in seen or
-                  row['platform'] not in allowed or row.get('enabled', True) is not True):
+                  row['platform'] not in allowed or type(row.get('enabled', True)) is not bool):
                   raise SystemExit('Invalid ID, platform or status')
               seen.add(row['id'])
               url = urlsplit(row['url'])

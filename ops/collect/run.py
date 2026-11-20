@@ -543,6 +543,9 @@ async def run(args):
     x_bearer = os.environ.pop('ARGUS_X_BEARER_TOKEN', None)
     isolate_platform_tokens()
     actor_token = os.environ.pop('ARGUS_SOURCE_ACTOR_TOKEN', None)
+    if os.getenv('ARGUS_ANONYMOUS_ONLY') == '1':
+        x_bearer = actor_token = None
+        os.environ.pop('TINYFISH_API_KEY', None)
     tinyfish = TinyFetch()
     if 'ARGUS_TINYFISH_FREE_URLS_PER_RUN' in os.environ:
         allowance=os.environ['ARGUS_TINYFISH_FREE_URLS_PER_RUN']
@@ -596,7 +599,7 @@ async def run(args):
     for source in sources:
         if source['platform'] in ('rss','mailru') and request_group(source):
             paced[request_group(source)]=1.0
-    from source_admission import Admission
+    from source_admission import Admission, source_enabled
     admission=Admission(paced,{'telegram':2,'youtube':2} if depth.bounded_poll.get() else {})
     paused_platforms=set(catalog.get('cooling_platforms',[]))
     x_reads = {}
@@ -936,7 +939,7 @@ async def run(args):
         selected=[];summaries=[]
         for platform in PLATFORMS:
             candidates=[s for s in sources if s.get('platform')==platform]
-            active=[s for s in candidates if s.get('enabled',s.get('status','active')=='active')]
+            active=[s for s in candidates if source_enabled(s)]
             eligible=active if args.sources_per_platform==0 else active[:args.sources_per_platform]
             chosen=[s for s in eligible if int(hashlib.sha256(s['id'].encode()).hexdigest(),16)%args.shard_count==args.shard_index];selected+=chosen
             summaries.append({'platform':platform,'configured':len(candidates),'enabled':len(active),'selected':len(chosen),
@@ -1053,4 +1056,5 @@ if __name__=='__main__':
     parser.add_argument('--window-hours',type=int,choices=range(0,169),metavar='0..168',default=0)
     args=parser.parse_args()
     if not 0<=args.sources_per_platform<=100 or not 1<=args.posts<=30 or not 0<=args.shard_index<args.shard_count<=32: parser.error('Bounds exceeded')
+    os.environ['ARGUS_ANONYMOUS_ONLY']='1'
     asyncio.run(run(args))

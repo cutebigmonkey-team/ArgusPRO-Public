@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
-#include <filesystem>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -105,33 +104,6 @@ std::shared_ptr<drogon::orm::DbClient> connectWithBackoff()
     throw std::runtime_error("database_unavailable");
 }
 
-std::string cookiePath(const PlatformAdapter &adapter)
-{
-    using argus::pipeline::envString;
-    const auto &spec = adapter.spec();
-    if (spec.cookieEnvironment.empty()) return {};
-    const std::string configured = envString(spec.cookieEnvironment.c_str());
-    if (!configured.empty()) return configured;
-    return "/run/secrets/collector-cookies/" + spec.platform + ".json";
-}
-
-void loadCookiesWhenPresent(argus::browser::BrowserSession &session,
-                            const PlatformAdapter &adapter)
-{
-    if (adapter.spec().cookieEnvironment.empty()) return;
-    const std::string path = cookiePath(adapter);
-    std::error_code error;
-    const bool exists = std::filesystem::exists(path, error);
-    if (error) throw std::runtime_error("auth_required");
-    if (!exists) return;
-    if (!std::filesystem::is_regular_file(path, error) || error)
-        throw std::runtime_error("auth_required");
-    // BrowserSession parses this file through a read-only stream. Invalid or
-    // empty existing files remain an authentication failure; only a genuinely
-    // absent file selects anonymous collection.
-    session.setCookies(argus::browser::BrowserSession::loadCookiesFile(path));
-}
-
 Json::Value payloadFor(const BrowserItem &item, const std::string &origin,
                        const std::string &platform)
 {
@@ -169,7 +141,6 @@ std::vector<BrowserItem> collect(PlatformAdapter &adapter, const std::string &so
         [] { return argus::pipeline::stopping(); });
     watchdog.heartbeat();
     ensureRunning();
-    loadCookiesWhenPresent(*session, adapter);
     Json::Value headers;
     headers["Accept-Language"] = "uk-UA,uk;q=0.9,en;q=0.7";
     session->setExtraHeaders(headers);

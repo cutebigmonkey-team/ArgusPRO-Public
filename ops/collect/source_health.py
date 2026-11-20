@@ -8,6 +8,8 @@ retry_hints = ContextVar('retry_hints',default=None)
 SKIPPED = {'disabled_by_registry', 'deferred_rate_limit', 'not_due', 'deferred_budget'}
 LIMITED = {'http_429', 'rate_limited', 'gateway_rate_limited'}
 BLOCKED = {'login_required', 'http_401', 'http_403', 'challenge_required', 'robots_denied'}
+TRANSIENT = {'timeout', 'network_error', 'dns_error', 'connection_reset',
+             'http_502', 'http_503', 'http_504'}
 EMPTY = {'no_public_posts', 'no_new_posts'}
 
 
@@ -91,8 +93,8 @@ def update(previous, record, *, target_seconds=None, headroom_seconds=0):
                     else min(interval, (target_seconds-headroom_seconds) / 60))
     if failures:
         interval = min(7*24*60, max(15, base) * 2**min(failures,10))
-    if status in ('timeout','network_error','dns_error','http_502','http_503','http_504'):
-        interval = min(interval, 60)
+    if status in TRANSIENT:
+        interval = min(60, 2**min(failures-1, 6))
     if platform == 'x' and status in {'connection_reset','http_500','stale_feed_only','x_incomplete_response'}:
         interval = min(interval, 60)
     if platform == 'x' and success and record.get('remaining_ranges'):
@@ -195,7 +197,8 @@ def update(previous, record, *, target_seconds=None, headroom_seconds=0):
             'successful_checks':previous.get('successful_checks',0)+int(success),
             'failed_checks':previous.get('failed_checks',0)+int(not success),
             'last_new_post_at':when if new else previous.get('last_new_post_at'),
-            'next_check_at':next_check.isoformat(), 'host_cooldown_until':host_until.isoformat() if host_until else None,'quiet_checks':quiet,
+            'next_check_at':next_check.isoformat(), 'retry_after':record.get('retry_after'),
+            'host_cooldown_until':host_until.isoformat() if host_until else None,'quiet_checks':quiet,
             'source_status':label, 'collector_name':next((a['tool'] for a in record['attempts']
                 if a.get('tool') and a.get('posts')),next((a['tool'] for a in record['attempts'] if a.get('tool')),None)),
             'discovered_posts':len(new),'archived_posts':len(set(record.get('canonical_keys',[]))),

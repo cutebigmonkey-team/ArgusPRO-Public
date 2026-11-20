@@ -196,17 +196,18 @@ class Pending:
             deleted=self.db.execute('DELETE FROM runtime_pending WHERE slot=1 AND digest=%s',(item['digest'],))
             if deleted.rowcount!=1:raise ValueError('pending_ack_conflict')
         self.last_delivery=datetime.now(timezone.utc).isoformat()
+        from publish import verified_source_rows
         emit('pending_acknowledged',scope='sql_pending',verified=True)
         emit('temporary_package_cleaned',scope='sql_pending',verified=True)
         emit('archive_verified',run_id=report['run_id'],selected=len(report['sources']),
              new_posts=report.get('new_to_archive'),
-             verified_posts=sum(r.get('archived_posts',0) for r in report['sources']),
+             verified_posts=verified_source_rows(report['sources']),
              statuses=dict(Counter(r['status'] for r in report['sources'])))
         for platform in sorted({row['platform'] for row in report['sources']}):
             rows=[row for row in report['sources'] if row['platform']==platform]
             emit('platform_verified',platform=platform,selected=len(rows),
                  new_posts=len(report['platform_insertions'].get(platform,{})) if 'platform_insertions' in report else None,
-                 verified_posts=sum(row.get('archived_posts',0) for row in rows),
+                 verified_posts=verified_source_rows(rows),
                  statuses=dict(Counter(row['status'] for row in rows)))
         return True
 
