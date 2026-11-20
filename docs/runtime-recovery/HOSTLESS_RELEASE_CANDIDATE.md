@@ -8,6 +8,8 @@ default command and UID 10001. Pass the approved commit as
 `ARGUS_SOURCE_SHA` when the provider supports a build argument. Otherwise
 record the provider's source SHA and resolved image ID separately. Keep
 the current frontend deployment and archive contract.
+Preserve the image's Tini entrypoint so Chromium descendants are reaped
+and the worker receives shutdown signals.
 
 | Boundary | Verified local path | Hostless requirement |
 | --- | --- | --- |

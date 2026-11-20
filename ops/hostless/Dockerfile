@@ -44,4 +44,10 @@ RUN sh /app/ops/hostless/check_comments_build.sh
 FROM worker-source AS production
 COPY --from=comments-backend-check /comments-backend-verified.json /app/comments-backend-verified.json
 COPY --from=comments-ui-check /comments-ui-verified.json /app/comments-ui-verified.json
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
+USER 10001:10001
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["python","/app/ops/hostless/worker.py"]
