@@ -31,7 +31,7 @@ def verify_token(token, *, key_client=None, now=None):
     try:
         header = jwt.get_unverified_header(token)
         # Only the key identifier may influence key lookup, never issuer URL/alg.
-        if header.get('alg') != 'RS256' or not isinstance(header.get('kid'), str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,256}', header['kid']):
+        if set(header)-{'alg','kid','typ'} or header.get('typ','JWT')!='JWT' or header.get('alg') != 'RS256' or not isinstance(header.get('kid'), str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,256}', header['kid']):
             raise ValueError('unsupported_oidc_header')
         client = _CLIENT if key_client is None else key_client
         key = client.get_signing_key_from_jwt(token).key
@@ -60,7 +60,11 @@ def verify_token(token, *, key_client=None, now=None):
             raise ValueError('expired_or_invalid_oidc_lifetime')
         if not isinstance(claims.get('jti'), str) or not 1 <= len(claims['jti']) <= 256:
             raise ValueError('invalid_oidc_jti')
-        return authorize_verified_claims(claims)
+        identity=authorize_verified_claims(claims)
+        return {**identity,'jti':claims['jti'],'expires_at':claims['exp'],
+                'repository_id':claims.get('repository_id'),'repository_owner_id':claims.get('repository_owner_id'),
+                'job_workflow_ref':claims.get('job_workflow_ref'),'job_workflow_sha':claims.get('job_workflow_sha'),
+                'workflow_sha':claims.get('workflow_sha')}
     except (PyJWTError, KeyError, TypeError, OverflowError) as exc:
         raise ValueError('oidc_verification_failed') from exc
 

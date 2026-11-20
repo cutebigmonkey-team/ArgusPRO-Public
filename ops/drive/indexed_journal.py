@@ -26,7 +26,8 @@ class IndexedFeedJournal(FeedJournal):
             self.head=store.read_json(HEAD)
             with self.index.db,VerifiedReplay(MAX_REPLAY_PAGES) as pages:
                 meta=load_base_snapshot(store,self.base,item_consumer=lambda row:self.index.put(row,initial=True))
-                floor=sequence(meta.get(CHECKPOINT));cursor=self.head
+                self.base_checkpoint=meta.get(CHECKPOINT)
+                floor=sequence(self.base_checkpoint);cursor=self.head
                 # Only descriptors remain in memory; each decoded page is discarded.
                 while sequence(cursor)>floor:
                     if len(pages)>=MAX_REPLAY_PAGES:raise ValueError('feed_compaction_required')
@@ -131,6 +132,11 @@ class IndexedFeedJournal(FeedJournal):
                                        previous_state=self.cursor.state,persist=self.cursor.commit,commit_key=package_id)
         return {'state':copy.deepcopy(self.verified_state),'changed':self.changed,
                 'archive_posts':self.index.count(),'feed_sequence':sequence(self.head)}
+
+    def compact(self,force=False):
+        compacted=super().compact(force)
+        if compacted:self.base_checkpoint=self.head
+        return compacted
 
     def maintenance(self,report):
         # Throttled separately from microbatch delivery; streams rows from disk.
