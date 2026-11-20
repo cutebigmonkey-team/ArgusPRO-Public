@@ -20,6 +20,8 @@ COPY ops/drive /app/ops/drive
 COPY ops/local-storage /app/ops/local-storage
 COPY ops/hostless /app/ops/hostless
 COPY ops/ai /app/ops/ai
+# Disabled ingestion contracts only; no entrypoint, schema application or activation.
+COPY ops/ingest /app/ops/ingest
 COPY backend/src/platforms/*Adapter.cpp /app/backend/src/platforms/
 ARG ARGUS_SOURCE_SHA=""
 RUN python -c 'import os,re,pathlib; value=os.environ.get("ARGUS_SOURCE_SHA", ""); assert not value or re.fullmatch("[0-9a-f]{40}",value); pathlib.Path("/app/release-sha").write_text(value)'
