@@ -39,7 +39,8 @@ STOP_REQUESTED=threading.Event()
 
 def release_sha():
     path=OPS.parent/'release-sha'
-    value=os.getenv('ARGUS_DEPLOYMENT_SHA') or (path.read_text().strip() if path.exists() else '')
+    baked=path.read_text().strip() if path.exists() else ''
+    value=baked or os.getenv('ARGUS_DEPLOYMENT_SHA','')
     return value if len(value)==40 and all(c in '0123456789abcdef' for c in value) else None
 
 

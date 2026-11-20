@@ -8,10 +8,11 @@ from pathlib import Path
 import sys
 
 
-REQUIRED = (
-    'ARGUS_DRIVE_OAUTH', 'ARGUS_DRIVE_FOLDER_ID', 'DATABASE_URL',
-    'ARGUS_JSONBIN_BIN_ID', 'ARGUS_JSONBIN_KEY', 'ARGUS_MIN_PRIVATE_SOURCES',
+CATALOG_BINDINGS = (
+    'ARGUS_DRIVE_OAUTH', 'ARGUS_DRIVE_FOLDER_ID',
+    'ARGUS_JSONBIN_BIN_ID', 'ARGUS_JSONBIN_KEY',
 )
+REQUIRED = (*CATALOG_BINDINGS, 'DATABASE_URL', 'ARGUS_MIN_PRIVATE_SOURCES')
 OPTIONAL = (
     'ARGUS_DATABASE_SESSION_URL', 'ARGUS_PRIVATE_SOURCE_FILE',
     'ARGUS_AUDIT_DATABASE_URL', 'ARGUS_JSONBIN_KEY_TYPE',
@@ -32,7 +33,7 @@ def main():
         'catalog_route': 'mounted_file' if present['ARGUS_PRIVATE_SOURCE_FILE'] else 'drive_sources_json',
         'minimum_valid': valid_minimum,
     }
-    if not args.read_catalog or not (all(present[key] for key in REQUIRED) and valid_minimum):
+    if not args.read_catalog or not all(present[key] for key in CATALOG_BINDINGS):
         print(json.dumps(result))
         return int(args.read_catalog)
 
@@ -50,7 +51,7 @@ def main():
         store = from_environment()
         store.assert_private()
         phase = 'source_catalog'
-        catalog = load_private_catalog(store, with_submissions)
+        catalog = load_private_catalog(store, with_submissions, inventory_only=True)
         phase = 'engine_registry'
         registry = fetch_registry(os.environ['ARGUS_JSONBIN_BIN_ID'], os.environ['ARGUS_JSONBIN_KEY'],
                                   os.getenv('ARGUS_JSONBIN_KEY_TYPE', 'access'))
@@ -64,7 +65,7 @@ def main():
             row['configured'] += 1
             row['source_enabled'] += source_enabled(source)
             row['engine_eligible'] += source_enabled(source) and platform in engines
-        result.update(platforms=counts,
+        result.update(configured_sources=len(catalog['sources']), platforms=counts,
                       runtime_schema='argus_drive_' + hashlib.sha256(store.root.encode()).hexdigest()[:24])
     except Exception:
         result['failed_phase'] = phase

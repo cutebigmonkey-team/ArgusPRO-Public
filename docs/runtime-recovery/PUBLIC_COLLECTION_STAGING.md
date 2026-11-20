@@ -206,6 +206,9 @@ resources. It uses the worker's catalog loader and prints the configured,
 source-enabled and engine-eligible counts by platform plus the derived
 runtime schema. PostgreSQL is checked separately. SQL scheduling may differ
 from engine eligibility because operator settings affect admission.
+Inventory can run before a source minimum is set. Use its observed
+configured count and the catalog owner's completeness confirmation to
+set the approved minimum before enabling collect mode.
 
 ```sh
 python ops/hostless/staging_preflight.py

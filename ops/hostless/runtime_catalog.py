@@ -24,7 +24,7 @@ def safe_read(reader):
 
 
 
-def load_private_catalog(store,with_submissions):
+def load_private_catalog(store,with_submissions,*,inventory_only=False):
     configured=os.environ.get('ARGUS_PRIVATE_SOURCE_FILE')
     if configured:
         path=Path(configured)
@@ -50,8 +50,9 @@ def load_private_catalog(store,with_submissions):
                 or row['id'] in ids):raise ValueError('invalid_private_source_registry')
         ids.add(row['id'])
     minimum=os.environ.get('ARGUS_MIN_PRIVATE_SOURCES','')
-    if os.environ.get('ARGUS_RUNTIME_MODE','preflight')=='collect' and (not minimum.isdigit() or int(minimum)<1):
-        raise ValueError('private_source_completeness_confirmation_required')
-    if minimum and (not minimum.isdigit() or len(rows)<int(minimum)):
-        raise ValueError('private_source_registry_incomplete')
+    if not inventory_only:
+        if os.environ.get('ARGUS_RUNTIME_MODE','preflight')=='collect' and (not minimum.isdigit() or int(minimum)<1):
+            raise ValueError('private_source_completeness_confirmation_required')
+        if minimum and (not minimum.isdigit() or len(rows)<int(minimum)):
+            raise ValueError('private_source_registry_incomplete')
     return catalog

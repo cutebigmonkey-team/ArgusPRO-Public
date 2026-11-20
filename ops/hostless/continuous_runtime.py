@@ -57,7 +57,7 @@ def run(w):
                     count+=1
                 load_base_snapshot(store,item_consumer=consume)
             w.emit('startup_completed',mode='preflight',database_session='not_acquired')
-            w.emit('preflight_ok',mode='preflight',base_posts=count,tls='verify-full');return
+            w.emit('preflight_ok',mode='preflight',base_posts=count,database_session='not_acquired');return
         with phases.phase('database_session'):
             schema='argus_drive_'+hashlib.sha256(store.root.encode()).hexdigest()[:24]
             journal=open_journal(os.getenv('ARGUS_DATABASE_SESSION_URL') or os.environ['DATABASE_URL'],schema,

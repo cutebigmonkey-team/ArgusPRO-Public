@@ -26,6 +26,18 @@ class PrivateCatalogTests(unittest.TestCase):
         with patch.dict(os.environ,{'ARGUS_RUNTIME_MODE':'collect'},clear=True):
             with self.assertRaisesRegex(ValueError,'completeness'):load_private_catalog(store,lambda store,catalog:catalog)
 
+    def test_inventory_reports_valid_catalog_before_minimum_is_confirmed(self):
+        store=Mock()
+        store.read_json.return_value=CATALOG
+        for minimum in ('','2'):
+            with patch.dict(os.environ,{'ARGUS_RUNTIME_MODE':'collect','ARGUS_MIN_PRIVATE_SOURCES':minimum},clear=True):
+                self.assertEqual(load_private_catalog(store,lambda _,catalog:catalog,inventory_only=True),CATALOG)
+                with self.assertRaises(ValueError):
+                    load_private_catalog(store,lambda _,catalog:catalog)
+        store.read_json.return_value={'sources':CATALOG['sources']*2}
+        with self.assertRaisesRegex(ValueError,'invalid_private_source_registry'):
+            load_private_catalog(store,lambda _,catalog:catalog,inventory_only=True)
+
     def test_private_file_outside_source_is_supported_without_drive_catalog_read(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'sources.private.json';path.write_text(json.dumps(CATALOG));store=Mock()
