@@ -15,6 +15,14 @@ class PgQueueContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'archive_readback_required'):
             queue.acknowledge('run','token')
 
+    def test_legacy_methods_cannot_mutate_phase2_batches(self):
+        queue = PostgresQueue(None)
+        identity = 'a' * 64 + ':0'
+        with self.assertRaisesRegex(ValueError, 'invalid_v1_queue_identity'):
+            queue.release(identity, 'token')
+        with self.assertRaisesRegex(ValueError, 'invalid_v1_queue_identity'):
+            queue.acknowledge(identity, 'token', archive_verified=True)
+
     def test_schema_has_unique_identity_and_body_limit(self):
         ddl = Path(__file__).with_name('pg_queue_schema.sql').read_text()
         self.assertIn('run_id text PRIMARY KEY',ddl)
